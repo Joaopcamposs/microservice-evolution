@@ -98,3 +98,27 @@ Mesma config; `POST /orders` agora grava histórico, envia e-mail de `RECEIVED` 
 | 500 | 378 | 2,06 s | 3,75 s | 5,54 s | 707 ms | 0% |
 
 Cada e-mail extra soma ~0,2 s por pedido e tira ~20–25% da vazão em relação à linha anterior (120/391/451 req/s). Quanto mais etapas síncronas, pior: reforça a motivação de tirar e-mail da request.
+
+## 2026-10-09 — Depois das refatorações (agregados, mapeamento imperativo, `OrderEffects`)
+
+Mesma config da linha anterior (4 workers, pool 5 + 10, OTel 100%). Mudou só o código: repositórios, sessões leitura/escrita, gateways, agregados de domínio com mapeamento imperativo e efeitos em `OrderEffects`.
+
+| Usuários | req/s | POST /orders p50 | p95 | p99 | GET /orders?id p95 | erros |
+|---|---|---|---|---|---|---|
+| 50 | 94 | 1,02 s | 1,28 s | 1,35 s | 8,0 ms | 0% |
+| 200 | 304 | 1,19 s | 1,83 s | 2,19 s | 62 ms | 0% |
+| 500 | 314 | 2,37 s | 4,76 s | 6,93 s | 889 ms | 0% |
+
+Segunda rodada, mesmos parâmetros:
+
+| Usuários | req/s | POST /orders p50 | p95 | p99 | GET /orders?id p95 | erros |
+|---|---|---|---|---|---|---|
+| 50 | 93 | 1,03 s | 1,28 s | 1,39 s | 8,2 ms | 0% |
+| 200 | 305 | 1,19 s | 1,76 s | 2,13 s | 66 ms | 0% |
+| 500 | 354 | 2,11 s | 4,15 s | 5,87 s | 723 ms | 0% |
+
+### Leitura
+
+- Com 50 e 200 usuários o resultado empata com o anterior (92/295 req/s): o tempo é dominado por cobrança e e-mail, que não mudaram.
+- Com 500 usuários a primeira rodada deu 314 req/s, mas a segunda deu 354 (e uma intermediária só desse patamar, 350), contra 378 antes da refatoração. A variação entre rodadas (~12%) é do tamanho da diferença: não há regressão mensurável. k6, API, Postgres e OTel dividem a mesma VM do Docker Desktop, o que explica o ruído.
+- Sem erros nem deadlock (0% de falha; nenhum `deadlock`/`Traceback` no log da API).

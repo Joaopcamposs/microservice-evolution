@@ -39,7 +39,7 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /or
 
 **Objetivo:** preparar o corte sem introduzir infraestrutura.
 **Entrega:**
-- Separar fluxo em passos explícitos no `OrderService`: `register_order` (rápido, transacional) vs. `settle_order` (cobrança + e-mail, lento).
+- Separar o fluxo em duas funções em `handlers.py`: `register_order` (rápido, transacional: carrega, `Order.place`, commit) e `settle_order` (lento: cobrança e e-mail via `OrderEffects`). Hoje `create_order` já tem essa sequência e o agregado (`begin_payment`/`settle_payment`) já guarda as regras; falta cortar a função ao meio e tornar `OrderEffects` chamável fora da request.
 - Estados persistidos entre os passos; `settle_order` idempotente (chamável 2× sem cobrar 2×; chave de idempotência na cobrança).
 - Experimento: `settle_order` via `BackgroundTasks`. Medir: latência cai, mas pedidos ficam presos em `AWAITING_PAYMENT` se o processo morrer — documentar a falha como motivação da etapa 4.
 
