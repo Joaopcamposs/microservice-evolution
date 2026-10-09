@@ -21,5 +21,8 @@
 - Testes passam de SQLite para Postgres real em compose separado (`docker-compose.test.yml`, porta 5433, tmpfs; `make test-db`), incluindo testes de concorrência. `aiosqlite` removido.
 - Etapa 1 (fluxo síncrono): `stock` no produto, reserva com `SELECT ... FOR UPDATE` (409 sem estoque), `status` do pedido (`PENDING → PAID → COMPLETED` / `PAYMENT_FAILED`), cobrança e e-mail fakes dentro da request (latência/falha por env, spans OTel `charge` e `send_email`); recusa devolve estoque. Schema mudou: `make reset`.
 - A versão com DDD/UoW/CQRS ficou na branch `major-complexo`.
+- Status completos com máquina de estados (`app/domain/status.py`), histórico em `order_status_history` (`notified_at` mostra se o e-mail foi confirmado) e `PATCH /orders/{id}/status?status=...` (dropdown no Swagger) para a operação; e-mail a cada mudança. `POST /orders` termina em `PAID`/`PAYMENT_FAILED` (substitui `PENDING`/`COMPLETED`). Schema mudou: `make reset`.
+- Header `X-Process-Time-Ms` em toda resposta (middleware ASGI em `app/infra/timing.py`).
+- Logs de pedido criado, mudanças de status, cobrança, e-mail e devolução de estoque (`LOG_LEVEL`; stdout e Loki).
 - Bench da Etapa 1 (OTel 100%): `POST /orders` ~0,8 s; 120 req/s com 50 usuários, ~450 req/s com 500 (p95 3,3 s). O bench revelou um deadlock na devolução de estoque (corrigido: updates em ordem de id). Detalhes em `bench/RESULTS.md`.
 - `create_all` na subida protegido por lock consultivo do Postgres: vários workers num banco vazio disputavam a criação das tabelas.

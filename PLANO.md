@@ -16,8 +16,8 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /or
 **Objetivo:** dar ao pedido o trabalho que mais tarde ficará lento.
 **Entrega:**
 - Estoque no produto; criar pedido reserva estoque (lock de linha) e falha com `409` se faltar.
-- Status do pedido: `PENDING → PAID → COMPLETED` / `PAYMENT_FAILED`.
-- Cobrança fake e e-mail fake (latência e taxa de falha por env), chamados dentro da request; recusa devolve o estoque.
+- Status do pedido com transições validadas: `RECEIVED → AWAITING_PAYMENT → PAID → AWAITING_SHIPMENT → SHIPPED → DELIVERED → COMPLETED` / `PAYMENT_FAILED`; histórico em `order_status_history`; `PATCH /orders/{id}/status` para a operação avançar o pedido.
+- Cobrança fake e e-mail fake (latência e taxa de falha por env), chamados dentro da request; um e-mail por mudança de status (na criação: recebido e resultado da cobrança); recusa devolve o estoque.
 - Spans OTel manuais `charge` e `send_email`.
 - Testes contra Postgres real (compose separado): estoque, recusa, transições e concorrência (sem overselling). Só abstrair (ex.: extrair um módulo de serviço) se o router ficar difícil de ler.
 
@@ -41,7 +41,7 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /or
 **Entrega:**
 - Separar fluxo em passos explícitos no `OrderService`: `register_order` (rápido, transacional) vs. `settle_order` (cobrança + e-mail, lento).
 - Estados persistidos entre os passos; `settle_order` idempotente (chamável 2× sem cobrar 2×; chave de idempotência na cobrança).
-- Experimento: `settle_order` via `BackgroundTasks`. Medir: latência cai, mas pedidos ficam presos em `PENDING` se o processo morrer — documentar a falha como motivação da etapa 4.
+- Experimento: `settle_order` via `BackgroundTasks`. Medir: latência cai, mas pedidos ficam presos em `AWAITING_PAYMENT` se o processo morrer — documentar a falha como motivação da etapa 4.
 
 **Pronto quando:** `POST /orders` rápido, falha demonstrada (matar processo no meio) e registrada.
 **Não faz:** broker.

@@ -46,6 +46,7 @@ services:
       # Amostragem: 1.0 = todos os traces. Reduza (ex.: 0.1) sob carga.
       OTEL_TRACES_SAMPLER: parentbased_traceidratio
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Cobrança e e-mail fake: latência média (ms, ±40%) e taxa de falha (0 a 1).
       CHARGE_LATENCY_MS: ${CHARGE_LATENCY_MS:-600}
       CHARGE_FAILURE_RATE: ${CHARGE_FAILURE_RATE:-0.1}

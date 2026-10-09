@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from app.domain.schemas import OrderCreate, OrderRead
+from app.domain.status import OrderStatus
 from app.infra.database import SessionDep
 from app.repository import repo
 from app.repository.orm.models import Order
@@ -20,14 +21,15 @@ router = APIRouter(prefix="/orders", tags=["orders"])
     status_code=201,
     summary="Cria pedido",
     description=(
-        "Cria um pedido para um usuário existente, reserva o estoque, cobra e envia o e-mail "
-        "na própria requisição (cobrança e e-mail são fakes, lentos). O preço unitário é "
-        "copiado do produto. Cobrança recusada devolve `PAYMENT_FAILED` e o estoque. "
-        "404 se usuário ou produto não existir; 409 se faltar estoque."
+        "Cria um pedido para um usuário existente, reserva o estoque e cobra na própria "
+        "requisição (cobrança e e-mail são fakes, lentos). Envia e-mail de pedido recebido e do "
+        "resultado da cobrança: o pedido volta `PAID` ou `PAYMENT_FAILED` (que devolve o "
+        "estoque). O preço unitário é copiado do produto. 404 se usuário ou produto não "
+        "existir; 409 se faltar estoque."
     ),
 )
 async def create_order(data: OrderCreate, session: SessionDep) -> Order:
-    """Cria o pedido e executa o fluxo completo (estoque, cobrança, e-mail)."""
+    """Cria o pedido e executa o fluxo síncrono (estoque, cobrança, e-mails)."""
     return await handlers.create_order(session, data)
 
 
@@ -49,3 +51,19 @@ async def list_orders(
 ) -> list[Order]:
     """Consulta pedidos por id e/ou usuário, ou lista paginada; sempre devolve lista."""
     return await repo.list_orders(session, order_id, user_id, limit, offset)
+
+
+@router.patch(
+    "/{order_id}/status",
+    response_model=OrderRead,
+    summary="Atualiza o status do pedido",
+    description=(
+        "Interface da operação para avançar o pedido (ex.: `AWAITING_SHIPMENT` → `SHIPPED`); "
+        "o novo status vai no parâmetro `status` (lista de opções no Swagger). "
+        "Cada mudança é gravada no histórico e dispara um e-mail. 404 se o pedido não existe; "
+        "409 se a transição não é permitida a partir do status atual."
+    ),
+)
+async def update_order_status(order_id: UUID, status: OrderStatus, session: SessionDep) -> Order:
+    """Muda o status do pedido seguindo as transições permitidas."""
+    return await handlers.update_order_status(session, order_id, status)

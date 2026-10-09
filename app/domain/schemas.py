@@ -80,6 +80,16 @@ class OrderItemRead(BaseModel):
     unit_price_cents: int
 
 
+class OrderStatusChangeRead(BaseModel):
+    """Entrada do histórico: estado, quando entrou e quando o e-mail foi confirmado."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    status: OrderStatus
+    created_at: datetime
+    notified_at: datetime | None
+
+
 class OrderRead(BaseModel):
     """Pedido devolvido pela API, com total calculado."""
 
@@ -91,3 +101,4 @@ class OrderRead(BaseModel):
     total_cents: int
     created_at: datetime
     items: list[OrderItemRead]
+    history: list[OrderStatusChangeRead]

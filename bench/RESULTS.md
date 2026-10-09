@@ -86,3 +86,15 @@ Config: 4 workers, pool 5 + 10, OTel ligado com 100% dos traces (comparável à 
 - **A vazão cai de ~885 para ~120 req/s com 50 usuários** (E → agora): cada VU passa quase todo o tempo esperando os fakes. É o problema que as próximas etapas devem resolver (tirar o trabalho lento da request).
 - **Com 500 usuários a API satura** (~450 req/s): a espera não ocupa CPU, mas a fila de requisições e o `GET` rápido também sofrem (p95 de 763 ms contra 7,6 ms com 50).
 - **Bug achado pelo bench:** a primeira rodada deu ~8,6% de 5xx com 200/500 usuários — `deadlock detected`. A devolução de estoque (cobrança recusada) atualizava produtos fora da ordem de id usada na reserva. Corrigido ordenando por `product_id` e coberto por teste de concorrência.
+
+### Com status completos e 2 e-mails por pedido
+
+Mesma config; `POST /orders` agora grava histórico, envia e-mail de `RECEIVED` e do resultado da cobrança (2 e-mails + cobrança ≈ 1,0 s de espera).
+
+| Usuários | req/s | POST /orders p50 | p95 | p99 | GET /orders?id p95 | erros |
+|---|---|---|---|---|---|---|
+| 50 | 92 | 1,03 s | 1,30 s | 1,57 s | 9,5 ms | 0% |
+| 200 | 295 | 1,20 s | 1,93 s | 2,44 s | 93 ms | 0% |
+| 500 | 378 | 2,06 s | 3,75 s | 5,54 s | 707 ms | 0% |
+
+Cada e-mail extra soma ~0,2 s por pedido e tira ~20–25% da vazão em relação à linha anterior (120/391/451 req/s). Quanto mais etapas síncronas, pior: reforça a motivação de tirar e-mail da request.

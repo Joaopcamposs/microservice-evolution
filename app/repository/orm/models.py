@@ -49,6 +49,18 @@ class OrderItem(Base):
     unit_price_cents: Mapped[int]
 
 
+class OrderStatusChange(Base):
+    """Uma entrada do histórico do pedido; `notified_at` vazio = e-mail pendente ou falhou."""
+
+    __tablename__ = "order_status_history"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    order_id: Mapped[UUID] = mapped_column(ForeignKey("orders.id"), index=True)
+    status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus, native_enum=False, length=20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Order(Base):
     """Pedido de um usuário com seus itens."""
 
@@ -57,10 +69,13 @@ class Order(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
     status: Mapped[OrderStatus] = mapped_column(
-        Enum(OrderStatus, native_enum=False, length=20), default=OrderStatus.PENDING
+        Enum(OrderStatus, native_enum=False, length=20), default=OrderStatus.RECEIVED
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     items: Mapped[list[OrderItem]] = relationship(lazy="selectin", order_by=OrderItem.id)
+    history: Mapped[list[OrderStatusChange]] = relationship(
+        lazy="selectin", order_by="OrderStatusChange.id"
+    )
 
     @property
     def total_cents(self) -> int:

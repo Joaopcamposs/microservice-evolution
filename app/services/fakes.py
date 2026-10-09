@@ -34,17 +34,26 @@ async def charge(order_id: UUID, amount_cents: int) -> bool:
     with tracer.start_as_current_span("charge") as span:
         span.set_attribute("order.id", str(order_id))
         span.set_attribute("order.amount_cents", amount_cents)
+        logger.info("cobrança iniciada order_id=%s valor_cents=%d", order_id, amount_cents)
         approved = await _simulate(CHARGE_LATENCY_MS, CHARGE_FAILURE_RATE)
         span.set_attribute("charge.approved", approved)
-        logger.info("cobrança order_id=%s aprovada=%s", order_id, approved)
+        if approved:
+            logger.info("cobrança aprovada order_id=%s", order_id)
+        else:
+            logger.warning("cobrança recusada order_id=%s", order_id)
         return approved
 
 
-async def send_email(order_id: UUID, to: str) -> bool:
-    """Envia o e-mail de confirmação; `False` se o envio falhou."""
+async def send_email(order_id: UUID, to: str, status: str) -> bool:
+    """Envia o e-mail da mudança para `status`; `False` se o envio falhou."""
     with tracer.start_as_current_span("send_email") as span:
         span.set_attribute("order.id", str(order_id))
+        span.set_attribute("order.status", status)
+        logger.info("e-mail iniciado order_id=%s status=%s", order_id, status)
         sent = await _simulate(EMAIL_LATENCY_MS, EMAIL_FAILURE_RATE)
         span.set_attribute("email.sent", sent)
-        logger.info("e-mail order_id=%s enviado=%s", order_id, sent)
+        if sent:
+            logger.info("e-mail enviado order_id=%s status=%s", order_id, status)
+        else:
+            logger.warning("e-mail falhou order_id=%s status=%s", order_id, status)
         return sent

@@ -69,3 +69,8 @@ def test_password_hash_verifies():
     assert PWD not in stored
     assert verify_password(PWD, stored)
     assert not verify_password("outra-senha-1", stored)
+
+
+async def test_response_has_process_time_header(client: httpx.AsyncClient):
+    resp = await client.get("/users")
+    assert float(resp.headers["X-Process-Time-Ms"]) >= 0

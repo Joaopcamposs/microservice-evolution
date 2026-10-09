@@ -47,6 +47,11 @@ async def get_products_by_ids(
     return {p.id: p for p in await session.scalars(stmt)}
 
 
+async def get_order(session: AsyncSession, order_id: UUID, lock: bool = False) -> Order | None:
+    """Busca um pedido pelo id; com `lock`, trava a linha (`FOR UPDATE`) até o fim da transação."""
+    return await session.get(Order, order_id, with_for_update=lock)
+
+
 async def list_orders(
     session: AsyncSession, order_id: UUID | None, user_id: UUID | None, limit: int, offset: int
 ) -> list[Order]:
