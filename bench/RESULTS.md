@@ -122,3 +122,15 @@ Segunda rodada, mesmos parâmetros:
 - Com 50 e 200 usuários o resultado empata com o anterior (92/295 req/s): o tempo é dominado por cobrança e e-mail, que não mudaram.
 - Com 500 usuários a primeira rodada deu 314 req/s, mas a segunda deu 354 (e uma intermediária só desse patamar, 350), contra 378 antes da refatoração. A variação entre rodadas (~12%) é do tamanho da diferença: não há regressão mensurável. k6, API, Postgres e OTel dividem a mesma VM do Docker Desktop, o que explica o ruído.
 - Sem erros nem deadlock (0% de falha; nenhum `deadlock`/`Traceback` no log da API).
+
+## Saturação com 500 usuários (diagnóstico)
+
+Rodada de 30 s com `docker stats` amostrado no meio da carga (VM do Docker Desktop com 10 CPUs, 4 GiB):
+
+| Container | CPU | Memória |
+|---|---|---|
+| api (4 workers) | 321–350% | ~420 MiB |
+| postgres | 45–50% | ~190 MiB |
+| k6 | ~11% | ~150 MiB |
+
+Resultado: 317 req/s, `POST` p95 4,06 s, `GET` p50 373 ms / p95 1,17 s, 0% de erro, sem timeout de pool. Gargalo: CPU dos workers da API (event loop), não o banco.

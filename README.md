@@ -8,6 +8,10 @@ Projeto de estudo de **evolução arquitetural**: uma API de pedidos FastAPI com
 
 **Etapa 1 — fluxo síncrono:** `POST /orders` reserva estoque, cobra e envia e-mail (fakes lentos) dentro da própria request. Sem fila nem worker; é o ponto de partida para medir a lentidão (Etapa 2). Sem autenticação.
 
+**Etapa 3 — em andamento:** `create_order` já é `register_order` (rápido) + `settle_order` (cobrança e e-mails, idempotente), ainda síncronos na mesma request. Falta o experimento com `BackgroundTasks`.
+
+**Etapa 2 — concluída:** carga (k6), observabilidade (OTel + Grafana) e conclusão registrada em `PLANO.md`: o gargalo é I/O externo síncrono dentro da request.
+
 ## Domínio
 
 - **Usuário:** `id`, `name`, `email` (único), `password` (só na entrada; guardada como hash scrypt, nunca devolvida), `created_at`.

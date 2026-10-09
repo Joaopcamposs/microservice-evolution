@@ -2,6 +2,8 @@
 
 ## Não lançado
 
+- Etapa 2 fechada de vez: diagnóstico de saturação com 500 usuários (CPU dos workers da API, ~80% cada; Postgres folgado) em `bench/RESULTS.md` e `PLANO.md`; dashboard Grafana conferido; sem meta fixa de latência; logs estruturados adiados para a Etapa 4.
+- Etapa 3 (partes 1–2): `create_order` cortado em `register_order` (rápido) e `settle_order` (lento, idempotente: lock da linha, só `RECEIVED` é liquidado). Cobrança fake idempotente por `order_id`. Contrato da API inalterado. Testes: fase rápida sem cobrança, liquidação concorrente cobra uma vez, id inexistente, dedupe do gateway.
 - Planejamento inicial: `AGENTS.md`, `README.md` e `PLANO.md`.
 - Etapa 0 (versão simples): cadastros e consultas de usuário, produto e pedido (FastAPI + SQLAlchemy async + Postgres, UUID v7). Testes com SQLite em memória.
 - Usuário com senha (hash scrypt, nunca devolvida) e e-mail validado com `EmailStr`. Schema mudou: `make reset`.
@@ -34,3 +36,4 @@
 - Handlers sem HTTP: `UserNotFound`, `OrderNotFound`, `EmailAlreadyExists` (+ os erros dos agregados) viram 404/409 num único `exception_handler` (`app/routers/errors.py`). `OrderWriter.load_for_update` devolve `(pedido, usuário)` travado, no molde de `load_placement`.
 - Bench após as refatorações de domínio: duas rodadas, 93–94/304–305/314–354 req/s com 50/200/500 usuários, 0% de erro (antes 92/295/378). Empate; a diferença com 500 usuários está dentro da variação entre rodadas. Detalhes em `bench/RESULTS.md`.
 - Testes de `OrderEffects` e da tabela de erros HTTP (todo `DomainError` precisa de status mapeado). `PLANO.md` (Etapa 3) descreve o corte `register_order`/`settle_order` sobre o código atual.
+- Etapa 2 fechada no `PLANO.md`: conclusão escrita (gargalo = cobrança + e-mails síncronos, ~1,0 s do `POST /orders`), índices em `status`/`created_at` descartados por falta de consulta que os use, texto de spans/logs corrigido.

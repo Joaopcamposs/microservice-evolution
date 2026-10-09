@@ -46,12 +46,20 @@ async def create_product(session: AsyncSession, data: ProductCreate) -> Product:
 
 
 async def create_order(session: AsyncSession, data: OrderCreate, effects: OrderEffects) -> Order:
-    """Cria o pedido, reserva estoque e cobra, tudo dentro da request.
+    """Cria o pedido e o liquida (cobrança e e-mails) dentro da request.
 
-    Busca o necessário (usuário e produtos travados com `FOR UPDATE`), o agregado decide
-    (`Order.place`) e, se der certo, grava e faz commit, o que libera os locks antes
-    das chamadas lentas. Depois vêm os efeitos: e-mail de RECEIVED e, após a cobrança, o do
-    resultado (PAID ou PAYMENT_FAILED). AWAITING_PAYMENT dura só a cobrança e não tem e-mail.
+    Duas fases, que a Etapa 3 do plano separa: `register_order` (rápida, transacional) e
+    `settle_order` (lenta, idempotente).
+    """
+    order = await register_order(session, data)
+    return await settle_order(session, order.id, effects)
+
+
+async def register_order(session: AsyncSession, data: OrderCreate) -> Order:
+    """Fase rápida: valida, reserva o estoque e grava o pedido em `RECEIVED`.
+
+    Busca o necessário (usuário e produtos travados com `FOR UPDATE`) e o agregado decide
+    (`Order.place`). O commit libera os locks; nada lento acontece aqui.
     """
     writer = OrderWriter(session)
     user, products = await writer.load_placement(data.user_id, data.product_ids)
@@ -61,6 +69,26 @@ async def create_order(session: AsyncSession, data: OrderCreate, effects: OrderE
     writer.add(order)
     await session.commit()
     logger.info("pedido criado order_id=%s total_cents=%d", order.id, order.total_cents)
+    return order
+
+
+async def settle_order(session: AsyncSession, order_id: UUID, effects: OrderEffects) -> Order:
+    """Fase lenta: e-mail de RECEIVED, cobrança e e-mail do resultado (PAID ou PAYMENT_FAILED).
+
+    Idempotente: só um pedido em `RECEIVED` é liquidado; chamar de novo (ou em paralelo) não
+    cobra nem envia nada, pois quem chega depois espera o lock e já vê outro estado.
+    A reivindicação (`RECEIVED` → `AWAITING_PAYMENT`, commit) segura o lock só durante o e-mail
+    de RECEIVED; a cobrança roda sem lock. AWAITING_PAYMENT dura só a cobrança e não tem e-mail.
+    Um pedido que fica em `AWAITING_PAYMENT` por queda do processo não é retomado (Etapa 4).
+    """
+    loaded = await OrderWriter(session).load_for_update(order_id)
+    if loaded is None:
+        raise OrderNotFound
+    order, user = loaded
+    if order.status is not OrderStatus.RECEIVED:
+        await session.commit()  # libera o lock
+        logger.info("pedido order_id=%s já liquidado ou em curso (%s)", order.id, order.status)
+        return order
 
     await effects.notify(order, user)
     order.begin_payment()

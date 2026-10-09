@@ -23,25 +23,34 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /or
 
 **Pronto quando:** `POST /orders` leva ~0,4–1,1 s e o fluxo completo funciona.
 
-## [ ] Etapa 2 — Carga, medição e observabilidade
+## [x] Etapa 2 — Carga, medição e observabilidade
 
 **Objetivo:** provar o problema com números.
 **Entrega:**
-- `bench/` (locust ou k6) com o cenário padrão; `make bench`.
-- Logs estruturados com `order_id`; latência por etapa (cobrança, e-mail, banco) via traces/métricas OpenTelemetry no Grafana (HTTP, dependências e queries já instrumentados; faltam spans manuais das etapas de negócio da etapa 1).
+- `bench/` (k6) com o cenário padrão; `make bench`.
+- Logs com `order_id` na mensagem (filtráveis no Loki; campos estruturados ficam para depois); latência por etapa (cobrança, e-mail, banco) via traces/métricas OpenTelemetry no Grafana (HTTP, queries e spans manuais `charge`/`send_email` já no dashboard).
 - Baseline registrado em `CHANGELOG.md`: com 50/200/500 usuários, onde p95 explode e por quê (workers uvicorn ocupados esperando fakes).
-- Ajustes baratos *antes* de arquitetura: pool de conexões, índices (`status`, `user_id`, `created_at`), mais processos uvicorn. Medir de novo. (Workers e pool já medidos em `bench/RESULTS.md`.)
+- Ajustes baratos *antes* de arquitetura: pool de conexões, índices, mais processos uvicorn. Medir de novo. (Workers e pool medidos em `bench/RESULTS.md`; índices: ver conclusão.)
 
 **Pronto quando:** existe tabela baseline vs. ajustes baratos e conclusão escrita de que o gargalo é I/O externo síncrono.
 **Não faz:** mudança de arquitetura.
+
+**Conclusão (números em `bench/RESULTS.md`):**
+- Ajustes baratos funcionaram: 4 workers + pool maior levaram a vazão de cadastros de ~550 para ~1450 req/s (p95 com 500 usuários: 5,4 s → 1,3 s). Daí em diante, mais processo/pool não resolve.
+- Com o fluxo da Etapa 1, o `POST /orders` leva ~1,0 s (p50 1,02–1,03 s com 50 usuários) e a configuração dos fakes soma 600 ms de cobrança + 2 × 200 ms de e-mail = 1,0 s: **praticamente todo o tempo da request é espera de I/O externo síncrono**, não CPU nem banco (o `GET` fica em ~8 ms de p95 com 50 usuários).
+- A vazão é limitada pela latência por request: com 50 usuários, ~93 req/s; com 200–500, satura em ~300–380 req/s, e o p95 do `POST` sobe de 1,3 s para 1,8 s e 4,2–4,8 s. Sem erro (0%) e sem deadlock.
+- **Índices:** não criados. Nenhuma consulta filtra por `status` ou `created_at` (a listagem ordena por `id`, UUID v7, que já ordena por criação, e filtra por `id`/`user_id`, ambos indexados). Criar sem consulta que use só custaria escrita. Reavaliar na Etapa 6 se aparecer filtro por status.
+- **Saturação com 500 usuários** (`docker stats` durante o k6, VM com 10 CPUs): a API usa ~320–350% de CPU (4 workers, ~80% cada), o Postgres ~45–50% de um núcleo e o k6 ~11%. O recurso que satura é a **CPU dos workers da API** (event loop: serialização, SQLAlchemy, OTel e milhares de corrotinas esperando I/O), não o banco: o `GET`, que leva ~8 ms com 50 usuários, sobe para p50 373 ms / p95 1,17 s por fila no event loop, e o `POST` p95 fica em ~4 s. Sem timeout de pool nos logs. Mais workers ajudariam até acabar a CPU da VM; tirar o trabalho lento da request (Etapas 3–4) reduz o tempo de cada request ocupando recursos.
+- Meta de latência: sem meta fixa; os números vão subindo etapa a etapa e cada medição fica registrada em `bench/RESULTS.md`. Métrica "tempo até `COMPLETED`" só faz sentido com fluxo assíncrono (Etapa 3). Logs estruturados (campos no Loki) ficam para a Etapa 4, quando `job_id` precisar correlacionar API, relay e workers.
+- Dashboard Grafana conferido: todas as linhas e painéis renderizam com dados reais (RED, por rota, etapas `charge`/`send_email`, queries, pool com 20 conexões em uso sob carga).
 
 ## [ ] Etapa 3 — Desacoplar na mesma base de código (modular)
 
 **Objetivo:** preparar o corte sem introduzir infraestrutura.
 **Entrega:**
-- Separar o fluxo em duas funções em `handlers.py`: `register_order` (rápido, transacional: carrega, `Order.place`, commit) e `settle_order` (lento: cobrança e e-mail via `OrderEffects`). Hoje `create_order` já tem essa sequência e o agregado (`begin_payment`/`settle_payment`) já guarda as regras; falta cortar a função ao meio e tornar `OrderEffects` chamável fora da request.
-- Estados persistidos entre os passos; `settle_order` idempotente (chamável 2× sem cobrar 2×; chave de idempotência na cobrança).
-- Experimento: `settle_order` via `BackgroundTasks`. Medir: latência cai, mas pedidos ficam presos em `AWAITING_PAYMENT` se o processo morrer — documentar a falha como motivação da etapa 4.
+- [x] Fluxo cortado em `handlers.py`: `register_order` (rápido, transacional: carrega, `Order.place`, commit) e `settle_order` (lento: cobrança e e-mail via `OrderEffects`); `create_order` chama as duas em sequência, contrato do `POST /orders` intacto (201 com `PAID`/`PAYMENT_FAILED`).
+- [x] `settle_order` idempotente: trava o pedido (`FOR UPDATE`), só `RECEIVED` é liquidado (vai a `AWAITING_PAYMENT` e comita, liberando o lock antes da cobrança); chamadas repetidas ou concorrentes viram no-op. Cobrança usa `order_id` como chave de idempotência (o fake devolve o resultado da primeira). Pedido preso em `AWAITING_PAYMENT` após queda não é retomado (motivação da etapa 4).
+- [ ] Experimento: `settle_order` via `BackgroundTasks`. Medir: latência cai, mas pedidos ficam presos em `AWAITING_PAYMENT` se o processo morrer — documentar a falha como motivação da etapa 4.
 
 **Pronto quando:** `POST /orders` rápido, falha demonstrada (matar processo no meio) e registrada.
 **Não faz:** broker.

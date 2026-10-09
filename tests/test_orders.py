@@ -4,8 +4,14 @@ import asyncio
 from uuid import UUID, uuid4
 
 import httpx
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.domain.errors import OrderNotFound
+from app.domain.schemas import OrderCreate, OrderItemCreate
+from app.domain.status import OrderStatus
 from app.main import app
+from app.services import handlers
+from app.services.effects import OrderEffects
 from app.services.fakes import FakeEmailSender, FakePaymentGateway
 from app.services.gateways import get_email_sender
 
@@ -266,3 +272,77 @@ async def test_handlers_accept_any_email_sender_implementation(client: httpx.Asy
     order_id = await _paid_order(client)
     await _patch(client, order_id, "AWAITING_SHIPMENT")
     assert recorder.sent == ["RECEIVED", "PAID", "AWAITING_SHIPMENT"]
+
+
+async def _registered(client: httpx.AsyncClient, factory: async_sessionmaker[AsyncSession]) -> UUID:
+    """Cria usuário e produto pela API e registra um pedido sem liquidar (fase rápida)."""
+    user, product = await _user(client), await _product(client, 500, stock=10)
+    data = OrderCreate(
+        user_id=UUID(user), items=[OrderItemCreate(product_id=UUID(product), quantity=2)]
+    )
+    async with factory() as session:
+        return (await handlers.register_order(session, data)).id
+
+
+async def _settle(
+    factory: async_sessionmaker[AsyncSession], order_id: UUID, effects: OrderEffects
+) -> OrderStatus:
+    """Liquida o pedido numa sessão própria e devolve o status final."""
+    async with factory() as session:
+        return (await handlers.settle_order(session, order_id, effects)).status
+
+
+async def test_register_order_is_fast_phase_only(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    payment: FakePaymentGateway,
+    email: FakeEmailSender,
+):
+    order_id = await _registered(client, session_factory)
+    order = (await client.get("/orders", params={"id": str(order_id)})).json()[0]
+    assert order["status"] == "RECEIVED"
+    assert [h["status"] for h in order["history"]] == ["RECEIVED"]
+    assert payment.charges == 0
+    assert await _stock(client, order["items"][0]["product_id"]) == 8
+
+
+async def test_settle_order_is_idempotent_under_concurrency(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    payment: FakePaymentGateway,
+    email: FakeEmailSender,
+):
+    order_id = await _registered(client, session_factory)
+    effects = OrderEffects(payment, email)
+    statuses = await asyncio.gather(
+        *(_settle(session_factory, order_id, effects) for _ in range(5))
+    )
+    assert OrderStatus.PAID in statuses
+    assert payment.charges == 1
+    order = (await client.get("/orders", params={"id": str(order_id)})).json()[0]
+    assert [h["status"] for h in order["history"]] == ["RECEIVED", "AWAITING_PAYMENT", "PAID"]
+    await _settle(session_factory, order_id, effects)  # de novo, depois de pronto
+    assert payment.charges == 1
+
+
+async def test_settle_order_unknown_id_is_not_found(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    payment: FakePaymentGateway,
+    email: FakeEmailSender,
+):
+    async with session_factory() as session:
+        try:
+            await handlers.settle_order(session, uuid4(), OrderEffects(payment, email))
+        except OrderNotFound:
+            return
+    raise AssertionError("esperava OrderNotFound")
+
+
+async def test_payment_gateway_does_not_charge_same_order_twice(payment: FakePaymentGateway):
+    order_id = uuid4()
+    payment.failure_rate = 1.0
+    assert await payment.charge(order_id, 100) is False
+    payment.failure_rate = 0.0
+    assert await payment.charge(order_id, 100) is False  # mesmo resultado, sem nova cobrança
+    assert payment.charges == 1

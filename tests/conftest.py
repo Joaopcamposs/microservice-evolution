@@ -31,18 +31,26 @@ def email() -> FakeEmailSender:
 
 
 @pytest.fixture
-async def client(
-    payment: FakePaymentGateway, email: FakeEmailSender
-) -> AsyncGenerator[httpx.AsyncClient]:
-    """Cliente HTTP ligado ao Postgres de testes; recria as tabelas e troca a sessão de produção."""
+async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession]]:
+    """Fábrica de sessões do Postgres de testes, com as tabelas recriadas."""
     engine = create_async_engine(TEST_DATABASE_URL, pool_size=10)
     async with engine.begin() as conn:
         await conn.run_sync(metadata.drop_all)
         await conn.run_sync(metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+    yield async_sessionmaker(engine, expire_on_commit=False)
+    await engine.dispose()
+
+
+@pytest.fixture
+async def client(
+    payment: FakePaymentGateway,
+    email: FakeEmailSender,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncGenerator[httpx.AsyncClient]:
+    """Cliente HTTP ligado ao Postgres de testes; troca a sessão de produção."""
 
     async def override() -> AsyncGenerator[AsyncSession]:
-        async with factory() as session:
+        async with session_factory() as session:
             yield session
 
     app.dependency_overrides[get_write_session] = override
@@ -52,4 +60,3 @@ async def client(
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c
     app.dependency_overrides.clear()
-    await engine.dispose()

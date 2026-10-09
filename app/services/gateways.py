@@ -17,7 +17,10 @@ class PaymentGateway(Protocol):
     """Contrato de um serviço de cobrança."""
 
     async def charge(self, order_id: UUID, amount_cents: int) -> bool:
-        """Cobra o pedido; `True` se aprovado, `False` se recusado."""
+        """Cobra o pedido; `True` se aprovado, `False` se recusado.
+
+        `order_id` é a chave de idempotência: cobrar o mesmo pedido de novo não cobra de novo.
+        """
         ...
 
 
