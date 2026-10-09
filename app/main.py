@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import FastAPI
 from sqlalchemy import func, select
 
-from app.infra.database import Base, engine
+from app.infra.database import Base, engine, read_engine
 from app.infra.logs import configure_logging
 from app.infra.timing import ProcessTimeMiddleware
 from app.routers import orders, products, users
@@ -29,6 +29,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         await conn.run_sync(Base.metadata.create_all)
     yield
     await engine.dispose()
+    await read_engine.dispose()
 
 
 def is_healthcheck(scope: MutableMapping[str, Any]) -> bool:

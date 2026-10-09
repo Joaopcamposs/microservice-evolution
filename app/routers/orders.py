@@ -7,8 +7,8 @@ from fastapi import APIRouter, Query
 
 from app.domain.schemas import OrderCreate, OrderRead
 from app.domain.status import OrderStatus
-from app.infra.database import SessionDep
-from app.repository import repo
+from app.infra.database import ReadSessionDep, WriteSessionDep
+from app.repository.orders import OrderReader
 from app.repository.orm.models import Order
 from app.services import handlers
 
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/orders", tags=["orders"])
         "existir; 409 se faltar estoque."
     ),
 )
-async def create_order(data: OrderCreate, session: SessionDep) -> Order:
+async def create_order(data: OrderCreate, session: WriteSessionDep) -> Order:
     """Cria o pedido e executa o fluxo síncrono (estoque, cobrança, e-mails)."""
     return await handlers.create_order(session, data)
 
@@ -43,14 +43,14 @@ async def create_order(data: OrderCreate, session: SessionDep) -> Order:
     ),
 )
 async def list_orders(
-    session: SessionDep,
+    session: ReadSessionDep,
     order_id: Annotated[UUID | None, Query(alias="id")] = None,
     user_id: UUID | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[Order]:
     """Consulta pedidos por id e/ou usuário, ou lista paginada; sempre devolve lista."""
-    return await repo.list_orders(session, order_id, user_id, limit, offset)
+    return await OrderReader(session).list(order_id, user_id, limit, offset)
 
 
 @router.patch(
@@ -64,6 +64,8 @@ async def list_orders(
         "409 se a transição não é permitida a partir do status atual."
     ),
 )
-async def update_order_status(order_id: UUID, status: OrderStatus, session: SessionDep) -> Order:
+async def update_order_status(
+    order_id: UUID, status: OrderStatus, session: WriteSessionDep
+) -> Order:
     """Muda o status do pedido seguindo as transições permitidas."""
     return await handlers.update_order_status(session, order_id, status)

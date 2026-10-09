@@ -6,9 +6,9 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from app.domain.schemas import UserCreate, UserRead
-from app.infra.database import SessionDep
-from app.repository import repo
+from app.infra.database import ReadSessionDep, WriteSessionDep
 from app.repository.orm.models import User
+from app.repository.users import UserReader
 from app.services import handlers
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/users", tags=["users"])
     summary="Cadastra usuário",
     description="Cria um usuário. O e-mail é único (409 se já existir).",
 )
-async def create_user(data: UserCreate, session: SessionDep) -> User:
+async def create_user(data: UserCreate, session: WriteSessionDep) -> User:
     """Cadastra um usuário."""
     return await handlers.create_user(session, data)
 
@@ -36,10 +36,10 @@ async def create_user(data: UserCreate, session: SessionDep) -> User:
     ),
 )
 async def list_users(
-    session: SessionDep,
+    session: ReadSessionDep,
     user_id: Annotated[UUID | None, Query(alias="id")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[User]:
     """Consulta usuários por id ou lista paginada; sempre devolve lista."""
-    return await repo.list_users(session, user_id, limit, offset)
+    return await UserReader(session).list(user_id, limit, offset)

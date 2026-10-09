@@ -6,14 +6,15 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.schemas import OrderCreate, ProductCreate, UserCreate
 from app.domain.status import OrderStatus
-from app.repository import repo
+from app.repository.orders import OrderWriter
 from app.repository.orm.models import Order, OrderItem, OrderStatusChange, Product, User
+from app.repository.products import ProductWriter
+from app.repository.users import UserReader, UserWriter
 from app.services import fakes
 from app.services.security import hash_password
 
@@ -25,12 +26,11 @@ async def create_user(session: AsyncSession, data: UserCreate) -> User:
 
     O hash (scrypt) é CPU-bound e roda em thread para não travar o event loop.
     """
-    user = User(
+    user = UserWriter(session).add(
         name=data.name,
         email=data.email.lower(),
         password_hash=await asyncio.to_thread(hash_password, data.password),
     )
-    session.add(user)
     try:
         await session.commit()
     except IntegrityError as exc:
@@ -40,8 +40,7 @@ async def create_user(session: AsyncSession, data: UserCreate) -> User:
 
 async def create_product(session: AsyncSession, data: ProductCreate) -> Product:
     """Cadastra um produto."""
-    product = Product(name=data.name, price_cents=data.price_cents, stock=data.stock)
-    session.add(product)
+    product = ProductWriter(session).add(data.name, data.price_cents, data.stock)
     await session.commit()
     return product
 
@@ -54,11 +53,11 @@ async def create_order(session: AsyncSession, data: OrderCreate) -> Order:
     chamadas lentas. Cada estado grava histórico; e-mails de RECEIVED e do resultado da
     cobrança (PAID ou PAYMENT_FAILED). AWAITING_PAYMENT dura só a cobrança e não tem e-mail.
     """
-    user = await repo.get_user(session, data.user_id)
+    user = await UserReader(session).get(data.user_id)
     if user is None:
         raise HTTPException(404, "usuário não encontrado")
     product_ids = [i.product_id for i in data.items]
-    products = await repo.get_products_by_ids(session, product_ids, lock=True)
+    products = await ProductWriter(session).get_for_update(product_ids)
     missing = set(product_ids) - products.keys()
     if missing:
         raise HTTPException(404, f"produtos não encontrados: {sorted(str(m) for m in missing)}")
@@ -80,7 +79,7 @@ async def create_order(session: AsyncSession, data: OrderCreate) -> Order:
             for i in data.items
         ],
     )
-    session.add(order)
+    OrderWriter(session).add(order)
     await session.commit()
     logger.info("pedido criado order_id=%s total_cents=%d", order.id, order.total_cents)
     await _notify(order, user)
@@ -101,13 +100,13 @@ async def update_order_status(session: AsyncSession, order_id: UUID, target: Ord
     404 se o pedido não existe; 409 se a transição não é permitida. A linha do pedido fica
     travada, então duas atualizações simultâneas não passam as duas pelo mesmo estado.
     """
-    order = await repo.get_order(session, order_id, lock=True)
+    order = await OrderWriter(session).get_for_update(order_id)
     if order is None:
         raise HTTPException(404, "pedido não encontrado")
     if not order.status.can_transition_to(target):
         allowed = sorted(s.value for s in order.status.next_states)
         raise HTTPException(409, f"{order.status} → {target} não permitido; possíveis: {allowed}")
-    user = await repo.get_user(session, order.user_id)
+    user = await UserReader(session).get(order.user_id)
     assert user is not None  # FK garante
     await _move(session, order, target)
     await session.commit()
@@ -122,7 +121,7 @@ async def _move(session: AsyncSession, order: Order, target: OrderStatus) -> Non
     order.status = target
     order.history.append(OrderStatusChange(status=target))
     if target is OrderStatus.PAYMENT_FAILED:
-        await _release_stock(session, order)
+        await ProductWriter(session).release_stock(order.items)
         logger.info("estoque devolvido order_id=%s", order.id)
 
 
@@ -131,16 +130,3 @@ async def _notify(order: Order, user: User) -> None:
     entry = order.history[-1]
     if await fakes.send_email(order.id, user.email, order.status):
         entry.notified_at = datetime.now(UTC)
-
-
-async def _release_stock(session: AsyncSession, order: Order) -> None:
-    """Devolve ao estoque as quantidades do pedido (UPDATE atômico, sem ler antes).
-
-    Atualiza em ordem de `product_id`, a mesma da reserva, para não gerar deadlock.
-    """
-    for item in sorted(order.items, key=lambda i: i.product_id):
-        await session.execute(
-            update(Product)
-            .where(Product.id == item.product_id)
-            .values(stock=Product.stock + item.quantity)
-        )

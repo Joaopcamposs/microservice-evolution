@@ -1,4 +1,4 @@
-"""Conexão com o banco: engine (com tracing OTel), sessão por request e base dos modelos ORM."""
+"""Conexão com o banco: engines (com tracing OTel), sessões de leitura e escrita, base ORM."""
 
 import os
 from collections.abc import AsyncGenerator
@@ -16,21 +16,39 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql+asyncpg://app:app@loca
 POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
 MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
 
+# Escrita; leituras dentro de uma escrita (locks, ler o que acabou de gravar) usam esta também.
 engine = create_async_engine(DATABASE_URL, pool_size=POOL_SIZE, max_overflow=MAX_OVERFLOW)
-# Um span por query, filho do span da requisição (sem exporter configurado, é no-op).
-# `skip_dep_check`: o instrumentor declara suporte só até SQLAlchemy 2.0; aqui usamos o 2.1.
-SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine, skip_dep_check=True)
-SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+# Leitura: por padrão o mesmo banco e o mesmo pool; com `READ_DATABASE_URL` (ex.: réplica) usa
+# um engine próprio.
+READ_DATABASE_URL = os.environ.get("READ_DATABASE_URL")
+read_engine = (
+    create_async_engine(READ_DATABASE_URL, pool_size=POOL_SIZE, max_overflow=MAX_OVERFLOW)
+    if READ_DATABASE_URL
+    else engine
+)
+# Um span por query, filho do span da requisição. Uma única chamada: o instrumentor é singleton
+# e ignora (com aviso) uma segunda. Exige SQLAlchemy < 2.1 (ver `pyproject.toml`).
+SQLAlchemyInstrumentor().instrument(engines=[e.sync_engine for e in {engine, read_engine}])
+WriteSession = async_sessionmaker(engine, expire_on_commit=False)
+# Sem autoflush: a sessão de leitura nunca grava.
+ReadSession = async_sessionmaker(read_engine, expire_on_commit=False, autoflush=False)
 
 
 class Base(DeclarativeBase):
     """Base declarativa de todos os modelos; guarda o `metadata` usado em `create_all`."""
 
 
-async def get_session() -> AsyncGenerator[AsyncSession]:
-    """Dependência FastAPI: uma sessão por request, fechada ao final."""
-    async with SessionLocal() as session:
+async def get_write_session() -> AsyncGenerator[AsyncSession]:
+    """Dependência FastAPI: sessão de escrita, uma por request, fechada ao final."""
+    async with WriteSession() as session:
         yield session
 
 
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
+async def get_read_session() -> AsyncGenerator[AsyncSession]:
+    """Dependência FastAPI: sessão de leitura, uma por request, fechada ao final."""
+    async with ReadSession() as session:
+        yield session
+
+
+WriteSessionDep = Annotated[AsyncSession, Depends(get_write_session)]
+ReadSessionDep = Annotated[AsyncSession, Depends(get_read_session)]

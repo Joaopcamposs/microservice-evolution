@@ -38,7 +38,7 @@ app/
   main.py               cria as tabelas na subida e registra os routers
   infra/database.py     engine, sessão por request, Base
   repository/orm/       tabelas ORM (models.py)
-  repository/repo.py    consultas (só leitura)
+  repository/           repositórios por entidade (users, products, orders): `*Reader` só lê, `*Writer` grava
   services/handlers.py  cadastros: regras de criação e commit
   domain/schemas.py     entrada/saída (Pydantic)
   routers/              rotas HTTP (users, products, orders)
@@ -74,7 +74,7 @@ make reset    # apaga o banco (schema mudou)
 make bench    # carga com k6 (50/200/500 usuários); `make bench VUS=100 DURATION=60s` para customizar; resultados em `bench/RESULTS.md`
 ```
 
-Banco configurável por `DATABASE_URL` (padrão: Postgres do compose).
+Banco configurável por `DATABASE_URL` (padrão: Postgres do compose). Leituras (`GET`) usam uma sessão própria; por padrão compartilha o engine/pool de escrita, e `READ_DATABASE_URL` aponta para outro banco (ex.: réplica de leitura, Etapa 6) com pool próprio.
 
 ## Stack
 

@@ -4,6 +4,8 @@ from uuid import uuid4
 
 import httpx
 
+from app.infra.database import get_read_session, get_write_session
+from app.main import app
 from app.services.security import hash_password, verify_password
 
 PWD = "senha-forte-1"
@@ -74,3 +76,21 @@ def test_password_hash_verifies():
 async def test_response_has_process_time_header(client: httpx.AsyncClient):
     resp = await client.get("/users")
     assert float(resp.headers["X-Process-Time-Ms"]) >= 0
+
+
+async def test_reads_use_read_session_and_writes_use_write_session(client: httpx.AsyncClient):
+    used: list[str] = []
+    for label, dep in (("read", get_read_session), ("write", get_write_session)):
+        original = app.dependency_overrides[dep]
+
+        async def tracked(original=original, label=label):
+            used.append(label)
+            async for session in original():
+                yield session
+
+        app.dependency_overrides[dep] = tracked
+
+    await client.post("/products", json={"name": "x", "price_cents": 1})
+    await client.get("/products")
+    await client.get("/users")
+    assert used == ["write", "read", "read"]

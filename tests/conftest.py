@@ -7,7 +7,7 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.infra.database import Base, get_session
+from app.infra.database import Base, get_read_session, get_write_session
 from app.main import app
 from app.services import fakes
 
@@ -38,7 +38,8 @@ async def client() -> AsyncGenerator[httpx.AsyncClient]:
         async with factory() as session:
             yield session
 
-    app.dependency_overrides[get_session] = override
+    app.dependency_overrides[get_write_session] = override
+    app.dependency_overrides[get_read_session] = override
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c
     app.dependency_overrides.clear()

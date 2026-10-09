@@ -8,8 +8,8 @@ Visão geral em `README.md`; roteiro em `PLANO.md`. Projeto de **estudo**: come�
 
 ## Regras de código
 
-- **Simplicidade primeiro:** sem `Protocol`, repositórios, unit of work ou camadas extras até a complexidade pedir. Mudança mínima e focada; não refatore o que não foi pedido.
-- **Estrutura:** `app/routers/` (HTTP), `app/domain/schemas.py` (Pydantic), `app/services/handlers.py` (cadastros: regras e commit), `app/repository/repo.py` (consultas ORM, só leitura), `app/repository/orm/models.py` (ORM), `app/infra/database.py`. Router só traduz HTTP; sem SQL/ORM direto nele.
+- **Simplicidade primeiro:** sem `Protocol`, interfaces abstratas, unit of work ou camadas extras até a complexidade pedir. Mudança mínima e focada; não refatore o que não foi pedido.
+- **Estrutura:** `app/routers/` (HTTP), `app/domain/schemas.py` (Pydantic), `app/services/handlers.py` (cadastros: regras e commit), `app/repository/{users,products,orders}.py` (um `*Reader` só de leitura e um `*Writer` de escrita por entidade, sobre `base.Repository`; consultas ORM aqui, commit no handler), `app/repository/orm/models.py` (ORM), `app/infra/database.py`. Router só traduz HTTP; sem SQL/ORM direto nele. GET usa `ReadSessionDep` + `*Reader`; POST/PATCH usam `WriteSessionDep` (handlers + `*Writer`); leituras dentro de uma escrita (locks, ler o que acabou de gravar) usam a sessão de escrita.
 - **Tipagem:** tudo tipado (parâmetros, retornos, atributos), sintaxe moderna do Python 3.13 (`list[X]`, `X | None`). Sem `Any` implícito nem `dict` solto onde um modelo cabe.
 - **ORM only:** SQLAlchemy 2.0 (`Mapped`, `mapped_column`, `select()`); proibido SQL em string.
 - **Ids:** UUID v7 (`uuid_utils.compat.uuid7`), gerado na aplicação. **Dinheiro:** `int` em centavos, nunca `float`.
@@ -20,7 +20,7 @@ Visão geral em `README.md`; roteiro em `PLANO.md`. Projeto de **estudo**: come�
 
 ## Testes
 
-- Todo código novo ou alterado leva teste. Testes usam Postgres real num compose separado (`docker-compose.test.yml`, porta 5433, tmpfs; `make test` sobe sozinho) via override de `get_session` (`tests/conftest.py`), com tabelas recriadas por teste. Concorrência (estoque, locks) é testada de verdade.
+- Todo código novo ou alterado leva teste. Testes usam Postgres real num compose separado (`docker-compose.test.yml`, porta 5433, tmpfs; `make test` sobe sozinho) via override de `get_write_session`/`get_read_session` (`tests/conftest.py`), com tabelas recriadas por teste. Concorrência (estoque, locks) é testada de verdade.
 - Rode só o teste relacionado: `make test T=tests/test_orders.py` (`pytest -x --tb=short -q`). Nunca a suíte inteira por padrão.
 - Máximo 2 tentativas no mesmo teste que falha; se continuar, pare e explique.
 - Só testes que protegem comportamento real (validação, total, 404/409/422, filtros). Sem testes que espelham a implementação.
