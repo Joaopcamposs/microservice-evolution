@@ -5,9 +5,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 
+from app.domain.product import Product
 from app.domain.schemas import ProductCreate, ProductRead
 from app.infra.database import ReadSessionDep, WriteSessionDep
-from app.repository.orm.models import Product
 from app.repository.products import ProductReader
 from app.services import handlers
 

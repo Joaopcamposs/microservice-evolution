@@ -4,9 +4,9 @@ from uuid import uuid4
 
 import httpx
 
+from app.domain.security import PasswordHasher
 from app.infra.database import get_read_session, get_write_session
 from app.main import app
-from app.services.security import PasswordHasher
 
 PWD = "senha-forte-1"
 

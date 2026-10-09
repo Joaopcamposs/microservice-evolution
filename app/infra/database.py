@@ -1,4 +1,4 @@
-"""Conexão com o banco: engines (com tracing OTel), sessões de leitura e escrita, base ORM."""
+"""Conexão com o banco: engines (com tracing OTel) e sessões de leitura e escrita."""
 
 import os
 from collections.abc import AsyncGenerator
@@ -7,7 +7,6 @@ from typing import Annotated
 from fastapi import Depends
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql+asyncpg://app:app@localhost:5432/app")
 
@@ -32,10 +31,6 @@ SQLAlchemyInstrumentor().instrument(engines=[e.sync_engine for e in {engine, rea
 WriteSession = async_sessionmaker(engine, expire_on_commit=False)
 # Sem autoflush: a sessão de leitura nunca grava.
 ReadSession = async_sessionmaker(read_engine, expire_on_commit=False, autoflush=False)
-
-
-class Base(DeclarativeBase):
-    """Base declarativa de todos os modelos; guarda o `metadata` usado em `create_all`."""
 
 
 async def get_write_session() -> AsyncGenerator[AsyncSession]:

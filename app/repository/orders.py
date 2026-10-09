@@ -4,8 +4,9 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from app.domain.order import Order
 from app.repository.base import Repository
-from app.repository.orm.models import Order
+from app.repository.orm.tables import orders
 
 
 class OrderReader(Repository):
@@ -15,11 +16,11 @@ class OrderReader(Repository):
         self, order_id: UUID | None, user_id: UUID | None, limit: int, offset: int
     ) -> list[Order]:
         """Lista pedidos, mais recentes primeiro; `order_id` e `user_id` opcionais filtram."""
-        stmt = select(Order).order_by(Order.id.desc()).limit(limit).offset(offset)
+        stmt = select(Order).order_by(orders.c.id.desc()).limit(limit).offset(offset)
         if order_id is not None:
-            stmt = stmt.where(Order.id == order_id)
+            stmt = stmt.where(orders.c.id == order_id)
         if user_id is not None:
-            stmt = stmt.where(Order.user_id == user_id)
+            stmt = stmt.where(orders.c.user_id == user_id)
         return list(await self.session.scalars(stmt))
 
 

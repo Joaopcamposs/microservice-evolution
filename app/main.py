@@ -7,9 +7,10 @@ from typing import Any
 from fastapi import FastAPI
 from sqlalchemy import func, select
 
-from app.infra.database import Base, engine, read_engine
+from app.infra.database import engine, read_engine
 from app.infra.logs import configure_logging
 from app.infra.timing import ProcessTimeMiddleware
+from app.repository.orm.tables import metadata
 from app.routers import orders, products, users
 
 configure_logging()
@@ -26,7 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     async with engine.begin() as conn:
         await conn.execute(select(func.pg_advisory_xact_lock(SCHEMA_LOCK_ID)))
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(metadata.create_all)
     yield
     await engine.dispose()
     await read_engine.dispose()

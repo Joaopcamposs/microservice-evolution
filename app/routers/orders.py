@@ -5,11 +5,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 
+from app.domain.order import Order
 from app.domain.schemas import OrderCreate, OrderRead
 from app.domain.status import OrderStatus
 from app.infra.database import ReadSessionDep, WriteSessionDep
 from app.repository.orders import OrderReader
-from app.repository.orm.models import Order
 from app.services import handlers
 from app.services.gateways import EmailDep, PaymentDep
 

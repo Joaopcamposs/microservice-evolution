@@ -6,8 +6,8 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from app.domain.schemas import UserCreate, UserRead
+from app.domain.user import User
 from app.infra.database import ReadSessionDep, WriteSessionDep
-from app.repository.orm.models import User
 from app.repository.users import UserReader
 from app.services import handlers
 
