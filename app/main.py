@@ -5,15 +5,23 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from sqlalchemy import func, select
 
 from app.infra.database import Base, engine
 from app.routers import orders, products, users
 
+SCHEMA_LOCK_ID = 7_001  # chave arbitrária do lock consultivo
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Cria as tabelas ausentes na subida e libera o pool ao desligar."""
+    """Cria as tabelas ausentes na subida e libera o pool ao desligar.
+
+    Com vários workers subindo juntos num banco vazio, um lock consultivo do Postgres
+    serializa o `create_all` (senão dois workers tentam criar a mesma tabela).
+    """
     async with engine.begin() as conn:
+        await conn.execute(select(func.pg_advisory_xact_lock(SCHEMA_LOCK_ID)))
         await conn.run_sync(Base.metadata.create_all)
     yield
     await engine.dispose()

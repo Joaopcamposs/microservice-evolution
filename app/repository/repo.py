@@ -33,9 +33,17 @@ async def list_products(
     return list(await session.scalars(stmt))
 
 
-async def get_products_by_ids(session: AsyncSession, ids: list[UUID]) -> dict[UUID, Product]:
-    """Busca vários produtos de uma vez; ids inexistentes ficam fora do resultado."""
-    stmt = select(Product).where(Product.id.in_(ids))
+async def get_products_by_ids(
+    session: AsyncSession, ids: list[UUID], lock: bool = False
+) -> dict[UUID, Product]:
+    """Busca vários produtos de uma vez; ids inexistentes ficam fora do resultado.
+
+    Com `lock`, trava as linhas (`FOR UPDATE`) até o fim da transação, em ordem de id
+    para que pedidos concorrentes não se bloqueiem em ciclo (deadlock).
+    """
+    stmt = select(Product).where(Product.id.in_(ids)).order_by(Product.id)
+    if lock:
+        stmt = stmt.with_for_update()
     return {p.id: p for p in await session.scalars(stmt)}
 
 

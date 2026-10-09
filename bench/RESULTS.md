@@ -69,3 +69,20 @@ Todas sem erros (0%).
 - **Observar custa caro aqui:** 100% dos traces derrubam a vazão em ~35–40%; 10% ainda custa ~22%. Parte vem de cada requisição gerar ~9 spans (HTTP, dependências, endpoint, queries, serialização) e das métricas/logs; parte da CPU que o container do Grafana toma da mesma máquina.
 - **Amostragem alivia, mas não zera:** a diferença E→F (~+25%) é o custo dos spans; o que sobra em F é métricas, contexto e o coletor.
 - **Regra daqui em diante:** comparar benchmarks sempre com a mesma configuração de OTel; para medir limite de capacidade pura, rodar com `FASTAPI_OTEL_AUTO_CONFIGURE=false`. Para investigar gargalo, usar OTel ligado e olhar os traces.
+
+## 2026-10-09 — Etapa 1: fluxo síncrono (estoque + cobrança + e-mail fakes)
+
+Config: 4 workers, pool 5 + 10, OTel ligado com 100% dos traces (comparável à linha E). `POST /orders` agora reserva estoque (`FOR UPDATE`), cobra (600 ms ±40%, 10% de recusa) e envia e-mail (200 ms ±40%, 5% de falha) dentro da request. Produtos do bench com estoque de 100 milhões (sem 409).
+
+| Usuários | req/s | POST /orders p50 | p95 | p99 | GET /orders?id p95 | erros |
+|---|---|---|---|---|---|---|
+| 50 | 120 | 806 ms | 1,05 s | 1,10 s | 7,6 ms | 0% |
+| 200 | 391 | 926 ms | 1,52 s | 1,87 s | 51 ms | 0% |
+| 500 | 451 | 1,61 s | 3,32 s | 4,76 s | 763 ms | 0% |
+
+### Leitura
+
+- **`POST /orders` leva ~0,8 s** (meta da etapa: 0,4–1,1 s); quase tudo é espera de cobrança + e-mail, não CPU nem banco.
+- **A vazão cai de ~885 para ~120 req/s com 50 usuários** (E → agora): cada VU passa quase todo o tempo esperando os fakes. É o problema que as próximas etapas devem resolver (tirar o trabalho lento da request).
+- **Com 500 usuários a API satura** (~450 req/s): a espera não ocupa CPU, mas a fila de requisições e o `GET` rápido também sofrem (p95 de 763 ms contra 7,6 ms com 50).
+- **Bug achado pelo bench:** a primeira rodada deu ~8,6% de 5xx com 200/500 usuários — `deadlock detected`. A devolução de estoque (cobrança recusada) atualizava produtos fora da ordem de id usada na reserva. Corrigido ordenando por `product_id` e coberto por teste de concorrência.

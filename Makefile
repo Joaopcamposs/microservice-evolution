@@ -1,5 +1,5 @@
 # Atalhos de desenvolvimento. Uso: make <alvo>.
-.PHONY: up down reset run test bench ruff ty
+.PHONY: up down reset run test test-db bench ruff ty
 
 # Sobe API + Postgres (reconstrói a imagem) e espera ficar saudável.
 up:
@@ -17,8 +17,12 @@ reset:
 run:
 	uv run uvicorn app.main:app --reload
 
-# Testes (usam SQLite em memória, sem Docker). Uso: make test T=tests/test_orders.py
-test:
+# Sobe o Postgres de testes (compose separado, porta 5433, dados em tmpfs).
+test-db:
+	docker compose -f docker-compose.test.yml up -d --wait
+
+# Testes contra o Postgres de testes (sobe sozinho). Uso: make test T=tests/test_orders.py
+test: test-db
 	uv run pytest -x --tb=short -q $(T)
 
 # Carga com k6 contra a API do compose (sobe tudo antes). Uso: make bench VUS="50 200 500" DURATION=30s

@@ -3,10 +3,11 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, func
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid_utils.compat import uuid7
 
+from app.domain.status import OrderStatus
 from app.infra.database import Base
 
 
@@ -26,11 +27,12 @@ class Product(Base):
     """Produto do catálogo."""
 
     __tablename__ = "products"
-    __table_args__ = (CheckConstraint("price_cents > 0"),)
+    __table_args__ = (CheckConstraint("price_cents > 0"), CheckConstraint("stock >= 0"))
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
     name: Mapped[str] = mapped_column(String(200))
     price_cents: Mapped[int]
+    stock: Mapped[int]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -54,6 +56,9 @@ class Order(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[OrderStatus] = mapped_column(
+        Enum(OrderStatus, native_enum=False, length=20), default=OrderStatus.PENDING
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     items: Mapped[list[OrderItem]] = relationship(lazy="selectin", order_by=OrderItem.id)
 

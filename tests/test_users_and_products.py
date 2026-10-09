@@ -44,9 +44,12 @@ async def test_invalid_user_is_422(client: httpx.AsyncClient):
 
 
 async def test_create_and_get_product(client: httpx.AsyncClient):
-    resp = await client.post("/products", json={"name": "Camiseta", "price_cents": 4990})
+    resp = await client.post(
+        "/products", json={"name": "Camiseta", "price_cents": 4990, "stock": 7}
+    )
     assert resp.status_code == 201
     product = resp.json()
+    assert product["stock"] == 7
     assert (await client.get("/products", params={"id": product["id"]})).json() == [product]
     assert (await client.get("/products")).json() == [product]
 

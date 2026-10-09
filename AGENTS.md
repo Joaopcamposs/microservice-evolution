@@ -20,7 +20,7 @@ Visão geral em `README.md`; roteiro em `PLANO.md`. Projeto de **estudo**: come�
 
 ## Testes
 
-- Todo código novo ou alterado leva teste. Testes usam SQLite em memória (sem Docker) via override de `get_session` (`tests/conftest.py`).
+- Todo código novo ou alterado leva teste. Testes usam Postgres real num compose separado (`docker-compose.test.yml`, porta 5433, tmpfs; `make test` sobe sozinho) via override de `get_session` (`tests/conftest.py`), com tabelas recriadas por teste. Concorrência (estoque, locks) é testada de verdade.
 - Rode só o teste relacionado: `make test T=tests/test_orders.py` (`pytest -x --tb=short -q`). Nunca a suíte inteira por padrão.
 - Máximo 2 tentativas no mesmo teste que falha; se continuar, pare e explique.
 - Só testes que protegem comportamento real (validação, total, 404/409/422, filtros). Sem testes que espelham a implementação.

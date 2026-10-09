@@ -18,4 +18,8 @@
 - Observabilidade: OpenTelemetry nativo do FastAPI (`fastapi[opentelemetry]`) + `opentelemetry-instrumentation-sqlalchemy` (com `skip_dep_check`, pois declara suporte só até SQLAlchemy 2.0) exportando para `grafana/otel-lgtm` no compose (Grafana em :3000). Custo medido: -22% a -40% de vazão (ver `bench/RESULTS.md`).
 - Dashboard Grafana "Orders API" provisionado por arquivo (`observability/`): RED, por rota, etapas da requisição, banco/pool, traces lentos e logs.
 - API com healthcheck no compose (o k6 espera a API ficar saudável).
+- Testes passam de SQLite para Postgres real em compose separado (`docker-compose.test.yml`, porta 5433, tmpfs; `make test-db`), incluindo testes de concorrência. `aiosqlite` removido.
+- Etapa 1 (fluxo síncrono): `stock` no produto, reserva com `SELECT ... FOR UPDATE` (409 sem estoque), `status` do pedido (`PENDING → PAID → COMPLETED` / `PAYMENT_FAILED`), cobrança e e-mail fakes dentro da request (latência/falha por env, spans OTel `charge` e `send_email`); recusa devolve estoque. Schema mudou: `make reset`.
 - A versão com DDD/UoW/CQRS ficou na branch `major-complexo`.
+- Bench da Etapa 1 (OTel 100%): `POST /orders` ~0,8 s; 120 req/s com 50 usuários, ~450 req/s com 500 (p95 3,3 s). O bench revelou um deadlock na devolução de estoque (corrigido: updates em ordem de id). Detalhes em `bench/RESULTS.md`.
+- `create_all` na subida protegido por lock consultivo do Postgres: vários workers num banco vazio disputavam a criação das tabelas.

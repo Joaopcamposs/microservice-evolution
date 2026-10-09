@@ -28,7 +28,7 @@ export function setup() {
   for (let i = 0; i < 10; i++) {
     const user = post('/users', { name: `bench ${i}`, email: `bench-${run}-${i}@mail.com`, password: 'senha-forte-1' }, 'setup');
     users.push(user.json('id'));
-    const product = post('/products', { name: `produto ${i}`, price_cents: 1000 + i }, 'setup');
+    const product = post('/products', { name: `produto ${i}`, price_cents: 1000 + i, stock: 100000000 }, 'setup');
     products.push(product.json('id'));
   }
   return { users, products };

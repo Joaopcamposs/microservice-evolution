@@ -20,12 +20,14 @@ router = APIRouter(prefix="/orders", tags=["orders"])
     status_code=201,
     summary="Cria pedido",
     description=(
-        "Cria um pedido para um usuário existente. O preço unitário de cada item é copiado "
-        "do produto no momento da criação. 404 se usuário ou produto não existir."
+        "Cria um pedido para um usuário existente, reserva o estoque, cobra e envia o e-mail "
+        "na própria requisição (cobrança e e-mail são fakes, lentos). O preço unitário é "
+        "copiado do produto. Cobrança recusada devolve `PAYMENT_FAILED` e o estoque. "
+        "404 se usuário ou produto não existir; 409 se faltar estoque."
     ),
 )
 async def create_order(data: OrderCreate, session: SessionDep) -> Order:
-    """Cria um pedido com itens, congelando o preço atual de cada produto."""
+    """Cria o pedido e executa o fluxo completo (estoque, cobrança, e-mail)."""
     return await handlers.create_order(session, data)
 
 

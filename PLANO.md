@@ -8,17 +8,18 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /or
 
 ## [x] Etapa 0 — Cadastros
 
-**Entrega:** API FastAPI + Postgres com cadastro e consulta de usuário, produto e pedido (ver README). Código simples, sem abstrações extras; testes com SQLite em memória.
+**Entrega:** API FastAPI + Postgres com cadastro e consulta de usuário, produto e pedido (ver README). Código simples, sem abstrações extras; testes com SQLite em memória (migrados para Postgres na etapa 1).
 **Não faz:** estoque, cobrança, e-mail, status, autenticação.
 
-## [ ] Etapa 1 — Fluxo de pedido síncrono
+## [x] Etapa 1 — Fluxo de pedido síncrono
 
 **Objetivo:** dar ao pedido o trabalho que mais tarde ficará lento.
 **Entrega:**
 - Estoque no produto; criar pedido reserva estoque (lock de linha) e falha com `409` se faltar.
 - Status do pedido: `PENDING → PAID → COMPLETED` / `PAYMENT_FAILED`.
 - Cobrança fake e e-mail fake (latência e taxa de falha por env), chamados dentro da request; recusa devolve o estoque.
-- Testes: estoque, recusa, transições. Só abstrair (ex.: extrair um módulo de serviço) se o router ficar difícil de ler.
+- Spans OTel manuais `charge` e `send_email`.
+- Testes contra Postgres real (compose separado): estoque, recusa, transições e concorrência (sem overselling). Só abstrair (ex.: extrair um módulo de serviço) se o router ficar difícil de ler.
 
 **Pronto quando:** `POST /orders` leva ~0,4–1,1 s e o fluxo completo funciona.
 

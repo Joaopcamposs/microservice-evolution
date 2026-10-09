@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.domain.status import OrderStatus
+
 
 class UserCreate(BaseModel):
     """Dados para cadastrar um usuário; a senha só entra, nunca é devolvida."""
@@ -30,6 +32,7 @@ class ProductCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=200)
     price_cents: int = Field(gt=0)
+    stock: int = Field(default=0, ge=0)
 
 
 class ProductRead(BaseModel):
@@ -40,6 +43,7 @@ class ProductRead(BaseModel):
     id: UUID
     name: str
     price_cents: int
+    stock: int
     created_at: datetime
 
 
@@ -83,6 +87,7 @@ class OrderRead(BaseModel):
 
     id: UUID
     user_id: UUID
+    status: OrderStatus
     total_cents: int
     created_at: datetime
     items: list[OrderItemRead]
