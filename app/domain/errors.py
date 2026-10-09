@@ -9,6 +9,15 @@ class DomainError(Exception):
     """Base dos erros de regra de negócio."""
 
 
+class ProductsNotFound(DomainError):
+    """O pedido cita produtos que não existem."""
+
+    def __init__(self, product_ids: list[UUID]) -> None:
+        """Guarda os ids inexistentes."""
+        super().__init__(f"produtos não encontrados: {[str(p) for p in product_ids]}")
+        self.product_ids = product_ids
+
+
 class InsufficientStock(DomainError):
     """Algum produto não tem estoque para a quantidade pedida."""
 

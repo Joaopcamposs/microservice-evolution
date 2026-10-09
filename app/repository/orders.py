@@ -5,8 +5,12 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.domain.order import Order
+from app.domain.product import Product
+from app.domain.user import User
 from app.repository.base import Repository
 from app.repository.orm.tables import orders
+from app.repository.products import ProductWriter
+from app.repository.users import UserReader
 
 
 class OrderReader(Repository):
@@ -26,6 +30,17 @@ class OrderReader(Repository):
 
 class OrderWriter(Repository):
     """Gravações de pedido; o commit é de quem chama."""
+
+    async def load_placement(
+        self, user_id: UUID, product_ids: list[UUID]
+    ) -> tuple[User | None, dict[UUID, Product]]:
+        """Busca o que a criação do pedido precisa: o usuário e os produtos (travados).
+
+        Ausentes ficam de fora (`None` / fora do dict); quem decide é o agregado e o handler.
+        """
+        user = await UserReader(self.session).get(user_id)
+        products = await ProductWriter(self.session).get_for_update(product_ids)
+        return user, products
 
     def add(self, order: Order) -> None:
         """Registra o pedido (com itens e histórico) na sessão."""

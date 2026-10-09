@@ -16,7 +16,7 @@ Projeto de estudo de **evolução arquitetural**: uma API de pedidos FastAPI com
 - **Status do pedido** (`app/domain/status.py`, com transições validadas): `RECEIVED → AWAITING_PAYMENT → PAID → AWAITING_SHIPMENT → SHIPPED → DELIVERED → COMPLETED`; desvio `AWAITING_PAYMENT → PAYMENT_FAILED`. `COMPLETED` e `PAYMENT_FAILED` são finais. Cada mudança grava uma linha em `order_status_history` (`status`, `created_at`, `notified_at`) e envia um e-mail; `notified_at` vazio = e-mail falhou, mas o pedido segue.
 - **Fluxo em `POST /orders`:** reserva o estoque (linhas travadas com `FOR UPDATE`, ordenadas por id) → `RECEIVED` + e-mail → `AWAITING_PAYMENT` (sem e-mail: dura só a cobrança) → cobrança fake → `PAID` ou `PAYMENT_FAILED` (devolve o estoque) + e-mail. O resto do ciclo é manual, pela operação, em `PATCH /orders/{id}/status`. Cobrança e e-mail: `CHARGE_LATENCY_MS` (600), `CHARGE_FAILURE_RATE` (0.1), `EMAIL_LATENCY_MS` (200), `EMAIL_FAILURE_RATE` (0.05), latência com ±40% de variação; spans `charge` e `send_email`.
 - Ids são UUID v7; dinheiro em centavos.
-- **Agregados** (`app/domain`): `User.register`, `Product.create` (e-mail em minúsculas, senha em hash), `Order.place` (reserva estoque, copia preço, `InsufficientStock`), `Order.move_to` (`InvalidTransition`). Classes puras, mapeadas às tabelas por mapeamento imperativo (`app/repository/orm/mapping.py`); os handlers só orquestram (busca, commit, e-mail, HTTP).
+- **Agregados** (`app/domain`): `User.register`, `Product.create` (e-mail em minúsculas, senha em hash), `Order.place` (recebe o que o repositório carregou; reserva estoque, copia preço, `ProductsNotFound`/`InsufficientStock`), `begin_payment`/`settle_payment`, `Order.move_to` (`InvalidTransition`). Classes puras, mapeadas às tabelas por mapeamento imperativo (`app/repository/orm/mapping.py`); os handlers só orquestram: `OrderWriter.load_placement` busca tudo, o agregado decide, o handler grava e faz commit, e `OrderEffects` (cobrança, e-mail) roda depois.
 
 ## Endpoints
 
@@ -41,7 +41,8 @@ app/
   domain/               agregados puros (User, Product, Order), status, erros, hash de senha
   repository/orm/       tabelas Core (tables.py) e mapeamento imperativo dos agregados (mapping.py)
   repository/           repositórios por entidade (users, products, orders): `*Reader` só lê, `*Writer` grava
-  services/handlers.py  cadastros: regras de criação e commit
+  services/handlers.py  casos de uso (funções): busca, agregado decide, grava, commit, efeitos
+  services/effects.py   efeitos do pedido (cobrança e e-mail), futuros eventos da UoW
   services/gateways.py  contratos (Protocol) de cobrança e e-mail, injetados nas rotas
   services/fakes.py     implementações fake (latência e falha por env)
   domain/schemas.py     entrada/saída (Pydantic)

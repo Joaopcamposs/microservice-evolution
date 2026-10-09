@@ -6,8 +6,9 @@ from uuid import UUID
 
 from uuid_utils.compat import uuid7
 
-from app.domain.errors import InsufficientStock, InvalidTransition
+from app.domain.errors import InsufficientStock, InvalidTransition, ProductsNotFound
 from app.domain.product import Product
+from app.domain.schemas import OrderItemCreate
 from app.domain.status import OrderStatus
 
 
@@ -43,13 +44,19 @@ class Order:
     history: list[OrderStatusChange] = field(default_factory=list)
 
     @classmethod
-    def place(cls, user_id: UUID, lines: list[tuple[Product, int]]) -> "Order":
+    def place(
+        cls, user_id: UUID, items: list[OrderItemCreate], products: dict[UUID, Product]
+    ) -> "Order":
         """Monta o pedido (`RECEIVED`) e reserva o estoque de cada produto.
 
-        `lines` traz (produto, quantidade). Se algum produto não tiver estoque, levanta
-        `InsufficientStock` com todos os faltantes, sem reservar nada. O preço do item é
-        copiado do produto.
+        `items` são os itens pedidos; `products` são os produtos já carregados.
+        Levanta `ProductsNotFound` se algum não estiver em `products` e `InsufficientStock`
+        com todos os faltantes, sem reservar nada. O preço do item é copiado do produto.
         """
+        missing = [i.product_id for i in items if i.product_id not in products]
+        if missing:
+            raise ProductsNotFound(sorted(missing))
+        lines = [(products[i.product_id], i.quantity) for i in items]
         short = [p.id for p, quantity in lines if not p.has_stock(quantity)]
         if short:
             raise InsufficientStock(short)
@@ -75,6 +82,19 @@ class Order:
             raise InvalidTransition(self.status, target)
         self.status = target
         self.history.append(OrderStatusChange(status=target))
+
+    def begin_payment(self) -> None:
+        """Passa para `AWAITING_PAYMENT`, o estado enquanto a cobrança roda."""
+        self.move_to(OrderStatus.AWAITING_PAYMENT)
+
+    def settle_payment(self, approved: bool) -> None:
+        """Aplica o resultado da cobrança: `PAID` se aprovada, senão `PAYMENT_FAILED`."""
+        self.move_to(OrderStatus.PAID if approved else OrderStatus.PAYMENT_FAILED)
+
+    @property
+    def releases_stock(self) -> bool:
+        """Diz se o estoque dos itens deve voltar (pedido com cobrança recusada)."""
+        return self.status is OrderStatus.PAYMENT_FAILED
 
     def mark_notified(self) -> None:
         """Marca o e-mail do estado atual como enviado."""

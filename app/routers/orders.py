@@ -11,7 +11,7 @@ from app.domain.status import OrderStatus
 from app.infra.database import ReadSessionDep, WriteSessionDep
 from app.repository.orders import OrderReader
 from app.services import handlers
-from app.services.gateways import EmailDep, PaymentDep
+from app.services.effects import EffectsDep
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -29,11 +29,9 @@ router = APIRouter(prefix="/orders", tags=["orders"])
         "existir; 409 se faltar estoque."
     ),
 )
-async def create_order(
-    data: OrderCreate, session: WriteSessionDep, payment: PaymentDep, email: EmailDep
-) -> Order:
+async def create_order(data: OrderCreate, session: WriteSessionDep, effects: EffectsDep) -> Order:
     """Cria o pedido e executa o fluxo síncrono (estoque, cobrança, e-mails)."""
-    return await handlers.create_order(session, data, payment, email)
+    return await handlers.create_order(session, data, effects)
 
 
 @router.get(
@@ -68,7 +66,7 @@ async def list_orders(
     ),
 )
 async def update_order_status(
-    order_id: UUID, status: OrderStatus, session: WriteSessionDep, email: EmailDep
+    order_id: UUID, status: OrderStatus, session: WriteSessionDep, effects: EffectsDep
 ) -> Order:
     """Muda o status do pedido seguindo as transições permitidas."""
-    return await handlers.update_order_status(session, order_id, status, email)
+    return await handlers.update_order_status(session, order_id, status, effects)

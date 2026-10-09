@@ -60,6 +60,11 @@ class OrderCreate(BaseModel):
     user_id: UUID
     items: list[OrderItemCreate] = Field(min_length=1)
 
+    @property
+    def product_ids(self) -> list[UUID]:
+        """Ids dos produtos pedidos, na ordem dos itens."""
+        return [i.product_id for i in self.items]
+
     @field_validator("items")
     @classmethod
     def reject_duplicate_products(cls, items: list[OrderItemCreate]) -> list[OrderItemCreate]:
