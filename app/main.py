@@ -1,7 +1,8 @@
 """Ponto de entrada FastAPI: cria as tabelas na subida e registra as rotas."""
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, MutableMapping
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -18,8 +19,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await engine.dispose()
 
 
+def is_healthcheck(scope: MutableMapping[str, Any]) -> bool:
+    """Exclui da telemetria o healthcheck do compose (`/docs`), que só geraria ruído."""
+    return scope.get("path") == "/docs"
+
+
 app = FastAPI(
-    title="Orders API", description="Cadastro de usuários, produtos e pedidos.", lifespan=lifespan
+    title="Orders API",
+    description="Cadastro de usuários, produtos e pedidos.",
+    lifespan=lifespan,
+    telemetry={"exclude": is_healthcheck},
 )
 app.include_router(users.router)
 app.include_router(products.router)

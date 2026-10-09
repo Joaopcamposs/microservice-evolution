@@ -37,9 +37,22 @@ app/
   services/handlers.py  cadastros: regras de criação e commit
   domain/schemas.py     entrada/saída (Pydantic)
   routers/              rotas HTTP (users, products, orders)
+observability/           dashboards Grafana (JSON) e provisionamento
 bench/                  cenário de carga k6 (`orders.js`): POST /orders + GET /orders?id=
 tests/           SQLite em memória (sem Docker)
 ```
+
+## Observabilidade (OpenTelemetry + Grafana)
+
+A API usa o OpenTelemetry nativo do FastAPI (traces, métricas e logs) mais o instrumentor do SQLAlchemy (um span por query). Tudo vai por OTLP/HTTP para o `grafana/otel-lgtm` (Grafana + Tempo + Prometheus + Loki num container), que sobe com `make up`.
+
+- Grafana: http://localhost:3000 (admin/admin). Em **Explore**:
+  - **Tempo** (traces): `{resource.service.name="orders-api"}`; um `POST /orders` mostra os spans da requisição, dependências, endpoint, queries e serialização.
+  - **Prometheus** (métricas): `http_server_request_duration_seconds_bucket`, `http_server_active_requests`.
+- **Dashboard "Orders API"** (pasta *Orders*, já provisionado a partir de `observability/dashboards/orders-api.json`): visão geral (req/s, % de 5xx, p50/p95/p99, requisições em andamento), vazão e latência por rota, tempo por etapa da requisição, banco (latência e volume de queries, uso do pool) e tabela de traces lentos + logs. Filtro por rota no topo. Editou no Grafana? Exporte o JSON e salve no arquivo, senão a próxima subida sobrescreve.
+- Configuração por env no `docker-compose.yml`: `FASTAPI_OTEL_AUTO_CONFIGURE` (desliga com `false`), `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_TRACES_SAMPLER_ARG` (fração de traces; padrão `1.0`).
+- `/docs` (healthcheck do compose) fica fora da telemetria.
+- Custo: ligado reduz a vazão em ~22–40% (ver `bench/RESULTS.md`). Para medir capacidade pura: `FASTAPI_OTEL_AUTO_CONFIGURE=false make bench`.
 
 ## Como rodar
 

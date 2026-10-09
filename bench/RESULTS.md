@@ -51,3 +51,21 @@ Todas sem erros (0%). p99 com 500 usuários: A 9,1 s · B 8,4 s · C 2,35 s · D
 - **Pool maior com 4 workers rende mais** (C→D: +20% com 50 usuários, +9% com 500), mas D chega a 100 conexões, o `max_connections` padrão do Postgres; sem folga para outros clientes. O padrão do compose ficou em C (60 conexões).
 - Mesmo com 4 workers a cauda ainda cresce com 500 usuários (p95 > 1 s): a fila só foi empurrada para mais longe. Dez núcleos são divididos com k6 e Postgres, então 4 workers pode já estar perto do teto desta máquina.
 - Não medido ainda: 8 workers, Postgres como gargalo (CPU/`max_connections`), custo de cada etapa dentro da requisição.
+
+## 2026-10-09 — Custo do OpenTelemetry
+
+Mesma config da C (4 workers, pool 5 + 10). OTel nativo do FastAPI (traces, métricas, logs) + `SQLAlchemyInstrumentor`, exportando OTLP para o `grafana/otel-lgtm` (que roda na mesma máquina e consome CPU também). `OTEL_TRACES_SAMPLER_ARG` controla só a fração de traces; métricas seguem sempre ligadas.
+
+| Config | 50 usuários | 200 usuários | 500 usuários |
+|---|---|---|---|
+| C (sem OTel) | 1457 req/s · p95 64 ms | 1453 req/s · p95 468 ms | 1449 req/s · p95 1,32 s |
+| E (OTel, 100% dos traces) | 979 req/s · p95 178 ms | 911 req/s · p95 735 ms | 885 req/s · p95 2,2 s |
+| F (OTel, 10% dos traces) | 1146 req/s · p95 116 ms | 1122 req/s · p95 615 ms | 1118 req/s · p95 1,73 s |
+
+Todas sem erros (0%).
+
+### Leitura
+
+- **Observar custa caro aqui:** 100% dos traces derrubam a vazão em ~35–40%; 10% ainda custa ~22%. Parte vem de cada requisição gerar ~9 spans (HTTP, dependências, endpoint, queries, serialização) e das métricas/logs; parte da CPU que o container do Grafana toma da mesma máquina.
+- **Amostragem alivia, mas não zera:** a diferença E→F (~+25%) é o custo dos spans; o que sobra em F é métricas, contexto e o coletor.
+- **Regra daqui em diante:** comparar benchmarks sempre com a mesma configuração de OTel; para medir limite de capacidade pura, rodar com `FASTAPI_OTEL_AUTO_CONFIGURE=false`. Para investigar gargalo, usar OTel ligado e olhar os traces.

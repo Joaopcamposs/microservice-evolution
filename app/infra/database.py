@@ -1,10 +1,11 @@
-"""Conexão com o banco: engine, sessão por request e base dos modelos ORM."""
+"""Conexão com o banco: engine (com tracing OTel), sessão por request e base dos modelos ORM."""
 
 import os
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import Depends
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -16,6 +17,9 @@ POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
 MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
 
 engine = create_async_engine(DATABASE_URL, pool_size=POOL_SIZE, max_overflow=MAX_OVERFLOW)
+# Um span por query, filho do span da requisição (sem exporter configurado, é no-op).
+# `skip_dep_check`: o instrumentor declara suporte só até SQLAlchemy 2.0; aqui usamos o 2.1.
+SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine, skip_dep_check=True)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 

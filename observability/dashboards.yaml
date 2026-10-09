@@ -1,0 +1,9 @@
+# Provisionamento do Grafana: carrega os dashboards da pasta montada em /orders-dashboards.
+apiVersion: 1
+
+providers:
+  - name: orders
+    type: file
+    folder: Orders
+    options:
+      path: /orders-dashboards

@@ -1,4 +1,4 @@
-# Ambiente local: API + Postgres. As tabelas são criadas pela API na subida.
+# Ambiente local: API + Postgres + Grafana (observabilidade). As tabelas são criadas pela API na subida.
 services:
   postgres:
     image: postgres:17
@@ -16,6 +16,19 @@ services:
       timeout: 3s
       retries: 15
 
+  # Grafana + Tempo (traces) + Prometheus (métricas) + Loki (logs) + coletor OTLP num container.
+  # Grafana em http://localhost:3000 (admin/admin); a API envia OTLP/HTTP na porta 4318.
+  otel:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "3000:3000"
+      - "4318:4318"
+    volumes:
+      - otel-data:/data
+      # Dashboards versionados: o provider aponta para a pasta montada abaixo.
+      - ./observability/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/orders.yaml:ro
+      - ./observability/dashboards:/orders-dashboards:ro
+
   # API; só inicia com o Postgres saudável.
   api:
     build: .
@@ -25,6 +38,14 @@ services:
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
       DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      # OpenTelemetry nativo do FastAPI: exporta traces, métricas e logs via OTLP para o `otel`.
+      # Desligar: FASTAPI_OTEL_AUTO_CONFIGURE=false docker compose up -d api
+      FASTAPI_OTEL_AUTO_CONFIGURE: ${FASTAPI_OTEL_AUTO_CONFIGURE:-true}
+      OTEL_SERVICE_NAME: orders-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel:4318
+      # Amostragem: 1.0 = todos os traces. Reduza (ex.: 0.1) sob carga.
+      OTEL_TRACES_SAMPLER: parentbased_traceidratio
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
     ports:
       - "8000:8000"
     depends_on:
@@ -49,3 +70,4 @@ services:
 
 volumes:
   pgdata:
+  otel-data:
