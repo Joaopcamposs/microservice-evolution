@@ -25,6 +25,7 @@
 - Header `X-Process-Time-Ms` em toda resposta (middleware ASGI em `app/infra/timing.py`).
 - Logs de pedido criado, mudanças de status, cobrança, e-mail e devolução de estoque (`LOG_LEVEL`; stdout e Loki).
 - Repositórios por entidade (`app/repository/{users,products,orders}.py`), `*Reader` (só leitura) e `*Writer` (escrita/locks) sobre `Repository`; sessões separadas de leitura (GET) e escrita (POST/PATCH), com `READ_DATABASE_URL` opcional. `repo.py` removido.
+- Cobrança e e-mail como `PaymentGateway` e `EmailSender` (Protocol, `services/gateways.py`) com implementações `FakePaymentGateway`/`FakeEmailSender`, injetadas por `Depends`; os testes trocam as instâncias via `dependency_overrides` em vez de `monkeypatch`.
 - Bench da Etapa 1 (OTel 100%): `POST /orders` ~0,8 s; 120 req/s com 50 usuários, ~450 req/s com 500 (p95 3,3 s). O bench revelou um deadlock na devolução de estoque (corrigido: updates em ordem de id). Detalhes em `bench/RESULTS.md`.
 - `create_all` na subida protegido por lock consultivo do Postgres: vários workers num banco vazio disputavam a criação das tabelas.
 - SQLAlchemy fixado em `>=2.0.40,<2.1` (era 2.1.4): o instrumentor OTel não suporta a 2.1, e o `skip_dep_check` que o contornava saiu.

@@ -15,7 +15,7 @@ from app.repository.orders import OrderWriter
 from app.repository.orm.models import Order, OrderItem, OrderStatusChange, Product, User
 from app.repository.products import ProductWriter
 from app.repository.users import UserReader, UserWriter
-from app.services import fakes
+from app.services.gateways import EmailSender, PaymentGateway
 from app.services.security import hash_password
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,9 @@ async def create_product(session: AsyncSession, data: ProductCreate) -> Product:
     return product
 
 
-async def create_order(session: AsyncSession, data: OrderCreate) -> Order:
+async def create_order(
+    session: AsyncSession, data: OrderCreate, payment: PaymentGateway, email: EmailSender
+) -> Order:
     """Cria o pedido, reserva estoque e cobra, tudo dentro da request.
 
     404 se usuário ou produto faltar; 409 se o estoque for insuficiente. O estoque é
@@ -82,19 +84,21 @@ async def create_order(session: AsyncSession, data: OrderCreate) -> Order:
     OrderWriter(session).add(order)
     await session.commit()
     logger.info("pedido criado order_id=%s total_cents=%d", order.id, order.total_cents)
-    await _notify(order, user)
+    await _notify(order, user, email)
 
     await _move(session, order, OrderStatus.AWAITING_PAYMENT)
     await session.commit()
-    approved = await fakes.charge(order.id, order.total_cents)
+    approved = await payment.charge(order.id, order.total_cents)
     await _move(session, order, OrderStatus.PAID if approved else OrderStatus.PAYMENT_FAILED)
     await session.commit()
-    await _notify(order, user)
+    await _notify(order, user, email)
     await session.commit()
     return order
 
 
-async def update_order_status(session: AsyncSession, order_id: UUID, target: OrderStatus) -> Order:
+async def update_order_status(
+    session: AsyncSession, order_id: UUID, target: OrderStatus, email: EmailSender
+) -> Order:
     """Move o pedido para `target` (interface da operação) e envia o e-mail da mudança.
 
     404 se o pedido não existe; 409 se a transição não é permitida. A linha do pedido fica
@@ -110,7 +114,7 @@ async def update_order_status(session: AsyncSession, order_id: UUID, target: Ord
     assert user is not None  # FK garante
     await _move(session, order, target)
     await session.commit()
-    await _notify(order, user)
+    await _notify(order, user, email)
     await session.commit()
     return order
 
@@ -125,8 +129,8 @@ async def _move(session: AsyncSession, order: Order, target: OrderStatus) -> Non
         logger.info("estoque devolvido order_id=%s", order.id)
 
 
-async def _notify(order: Order, user: User) -> None:
+async def _notify(order: Order, user: User, email: EmailSender) -> None:
     """Envia o e-mail do estado atual; só marca `notified_at` se o envio der certo."""
     entry = order.history[-1]
-    if await fakes.send_email(order.id, user.email, order.status):
+    if await email.send(order.id, user.email, order.status):
         entry.notified_at = datetime.now(UTC)

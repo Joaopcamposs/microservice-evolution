@@ -40,6 +40,8 @@ app/
   repository/orm/       tabelas ORM (models.py)
   repository/           repositórios por entidade (users, products, orders): `*Reader` só lê, `*Writer` grava
   services/handlers.py  cadastros: regras de criação e commit
+  services/gateways.py  contratos (Protocol) de cobrança e e-mail, injetados nas rotas
+  services/fakes.py     implementações fake (latência e falha por env)
   domain/schemas.py     entrada/saída (Pydantic)
   routers/              rotas HTTP (users, products, orders)
 observability/           dashboards Grafana (JSON) e provisionamento

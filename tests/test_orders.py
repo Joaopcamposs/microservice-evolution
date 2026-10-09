@@ -1,11 +1,13 @@
 """Pedidos: total, preço congelado, validações, estoque, cobrança, e-mail e concorrência."""
 
 import asyncio
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 
-from app.services import fakes
+from app.main import app
+from app.services.fakes import FakeEmailSender, FakePaymentGateway
+from app.services.gateways import get_email_sender
 
 
 async def _user(client: httpx.AsyncClient, email: str = "ana@mail.com") -> str:
@@ -100,8 +102,10 @@ async def test_insufficient_stock_is_409_and_keeps_stock(client: httpx.AsyncClie
     assert (await client.get("/orders")).json() == []
 
 
-async def test_refused_charge_fails_order_and_returns_stock(client: httpx.AsyncClient, monkeypatch):
-    monkeypatch.setattr(fakes, "CHARGE_FAILURE_RATE", 1.0)
+async def test_refused_charge_fails_order_and_returns_stock(
+    client: httpx.AsyncClient, payment: FakePaymentGateway
+):
+    payment.failure_rate = 1.0
     user, product = await _user(client), await _product(client, 100, stock=5)
     resp = await client.post("/orders", json=_order(user, product, 3))
     assert resp.status_code == 201
@@ -110,8 +114,10 @@ async def test_refused_charge_fails_order_and_returns_stock(client: httpx.AsyncC
     assert await _stock(client, product) == 5
 
 
-async def test_email_failure_does_not_block_order(client: httpx.AsyncClient, monkeypatch):
-    monkeypatch.setattr(fakes, "EMAIL_FAILURE_RATE", 1.0)
+async def test_email_failure_does_not_block_order(
+    client: httpx.AsyncClient, email: FakeEmailSender
+):
+    email.failure_rate = 1.0
     user, product = await _user(client), await _product(client, 100, stock=5)
     order = (await client.post("/orders", json=_order(user, product))).json()
     assert order["status"] == "PAID"
@@ -128,8 +134,10 @@ async def test_concurrent_orders_for_last_item_only_one_wins(client: httpx.Async
     assert await _stock(client, product) == 0
 
 
-async def test_concurrent_orders_never_oversell(client: httpx.AsyncClient, monkeypatch):
-    monkeypatch.setattr(fakes, "CHARGE_LATENCY_MS", 20)  # força as requests a se sobreporem
+async def test_concurrent_orders_never_oversell(
+    client: httpx.AsyncClient, payment: FakePaymentGateway
+):
+    payment.latency_ms = 20  # força as requests a se sobreporem
     user, product = await _user(client), await _product(client, 100, stock=5)
     results = await asyncio.gather(
         *(client.post("/orders", json=_order(user, product)) for _ in range(12))
@@ -141,9 +149,9 @@ async def test_concurrent_orders_never_oversell(client: httpx.AsyncClient, monke
 
 
 async def test_concurrent_refused_orders_with_opposite_item_order_do_not_deadlock(
-    client: httpx.AsyncClient, monkeypatch
+    client: httpx.AsyncClient, payment: FakePaymentGateway
 ):
-    monkeypatch.setattr(fakes, "CHARGE_FAILURE_RATE", 1.0)
+    payment.failure_rate = 1.0
     user = await _user(client)
     a, b = await _product(client, 100, stock=50), await _product(client, 100, stock=50)
     forward = [{"product_id": a, "quantity": 1}, {"product_id": b, "quantity": 1}]
@@ -191,8 +199,10 @@ async def test_invalid_transition_is_409_and_changes_nothing(client: httpx.Async
     assert order["status"] == "PAID" and len(order["history"]) == 3
 
 
-async def test_failed_payment_order_is_final(client: httpx.AsyncClient, monkeypatch):
-    monkeypatch.setattr(fakes, "CHARGE_FAILURE_RATE", 1.0)
+async def test_failed_payment_order_is_final(
+    client: httpx.AsyncClient, payment: FakePaymentGateway
+):
+    payment.failure_rate = 1.0
     user, product = await _user(client), await _product(client, 100)
     order = (await client.post("/orders", json=_order(user, product))).json()
     assert (await _patch(client, order["id"], "AWAITING_SHIPMENT")).status_code == 409
@@ -204,9 +214,11 @@ async def test_status_update_unknown_order_or_status(client: httpx.AsyncClient):
     assert (await _patch(client, order_id, "INEXISTENTE")).status_code == 422
 
 
-async def test_status_update_email_failure_keeps_transition(client: httpx.AsyncClient, monkeypatch):
+async def test_status_update_email_failure_keeps_transition(
+    client: httpx.AsyncClient, email: FakeEmailSender
+):
     order_id = await _paid_order(client)
-    monkeypatch.setattr(fakes, "EMAIL_FAILURE_RATE", 1.0)
+    email.failure_rate = 1.0
     order = (await _patch(client, order_id, "AWAITING_SHIPMENT")).json()
     assert order["status"] == "AWAITING_SHIPMENT"
     assert _history(order)[-1] == ("AWAITING_SHIPMENT", False)
@@ -222,8 +234,10 @@ async def test_concurrent_status_updates_only_one_wins(client: httpx.AsyncClient
     assert [h["status"] for h in order["history"]].count("AWAITING_SHIPMENT") == 1
 
 
-async def test_payment_and_email_steps_are_logged(client: httpx.AsyncClient, caplog, monkeypatch):
-    monkeypatch.setattr(fakes, "CHARGE_FAILURE_RATE", 1.0)
+async def test_payment_and_email_steps_are_logged(
+    client: httpx.AsyncClient, caplog, payment: FakePaymentGateway
+):
+    payment.failure_rate = 1.0
     user, product = await _user(client), await _product(client, 100)
     with caplog.at_level("INFO", logger="app"):
         order = (await client.post("/orders", json=_order(user, product))).json()
@@ -231,3 +245,24 @@ async def test_payment_and_email_steps_are_logged(client: httpx.AsyncClient, cap
     assert f"cobrança recusada order_id={order['id']}" in text
     assert "estoque devolvido" in text
     assert f"e-mail enviado order_id={order['id']} status=PAYMENT_FAILED" in text
+
+
+class RecordingEmail:
+    """E-mail de teste que só registra os status enviados (prova que o Protocol basta)."""
+
+    def __init__(self) -> None:
+        """Começa sem envios."""
+        self.sent: list[str] = []
+
+    async def send(self, order_id: UUID, to: str, status: str) -> bool:
+        """Registra o status e informa sucesso."""
+        self.sent.append(status)
+        return True
+
+
+async def test_handlers_accept_any_email_sender_implementation(client: httpx.AsyncClient):
+    recorder = RecordingEmail()
+    app.dependency_overrides[get_email_sender] = lambda: recorder
+    order_id = await _paid_order(client)
+    await _patch(client, order_id, "AWAITING_SHIPMENT")
+    assert recorder.sent == ["RECEIVED", "PAID", "AWAITING_SHIPMENT"]
