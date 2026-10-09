@@ -1,0 +1,21 @@
+# Infraestrutura local da etapa 0: apenas o Postgres.
+# O schema é criado pela própria API (SQLAlchemy create_all) na subida.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: sales
+      POSTGRES_PASSWORD: sales
+      POSTGRES_DB: sales
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sales"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:

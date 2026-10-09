@@ -4,7 +4,7 @@ Visão geral em `README.md`; roteiro de evolução em `PLANO.md`. Projeto de dem
 
 ## Documentação
 
-`README.md` e `PLANO.md` fazem parte da entrega. Serviço criado/removido, endpoint novo, contrato (`contracts/envelope.schema.json`, quando existir), schema (`db/init.sql`) ou tabela de roteamento alterados atualizam o README no mesmo passo. Etapa concluída é marcada em `PLANO.md`. Doc desatualizada é bug. Mudança notável entra no `CHANGELOG.md` no mesmo passo.
+`README.md`, `PLANO.md`, `ARCHITECTURE.md` e `TUTORIAL.md` fazem parte da entrega (mudou camada, fluxo, decisão técnica ou comando: atualizar o doc correspondente). Serviço criado/removido, endpoint novo, contrato (`contracts/envelope.schema.json`, quando existir), schema (`api/app/infrastructure/db/models.py`) ou tabela de roteamento alterados atualizam o README no mesmo passo. Etapa concluída é marcada em `PLANO.md`. Doc desatualizada é bug. Mudança notável entra no `CHANGELOG.md` no mesmo passo.
 
 ## Regras de código
 
@@ -12,7 +12,17 @@ Visão geral em `README.md`; roteiro de evolução em `PLANO.md`. Projeto de dem
 - Python: tudo tipado (parâmetros, retornos, atributos). Sem `Any` implícito nem `dict` solto onde um modelo cabe.
 - Sintaxe moderna (Python 3.13): `list[Sale]`, `X | None`, `StrEnum`, `dataclass(frozen=True, slots=True)`.
 - Dados são `dataclass` (domínio) ou `pydantic.BaseModel` (borda). Sem tuplas/dicts anônimos entre camadas.
+- `dataclass(frozen=True, slots=True)` para value objects; agregados e entidades são `dataclass(slots=True, eq=False, kw_only=True)` herdando de `Entity` (mutáveis, mudam só por métodos de negócio).
 - Go (só se a etapa 7 do plano for executada): structs com tags explícitas, erros retornados e tratados (nunca ignorados com `_`), `context.Context` como primeiro parâmetro em I/O.
+
+### Arquitetura (DDD)
+- Camadas: `domain` (agregados puros, sem SQLAlchemy/FastAPI/pydantic, regras e invariantes nos métodos do agregado) → `services` (casos de uso de escrita, orquestram agregados via `UnitOfWork`) → `infrastructure` (ORM, repositórios, UoW) → `routes` (HTTP).
+- **Escrita e leitura separadas (CQRS leve):** repositórios de *escrita* carregam/salvam agregados de domínio (interfaces `Protocol` em `domain/repositories.py`); repositórios de *leitura* fazem `select` ORM e devolvem modelos de saída (`schemas.py`) sem passar pelo domínio. Rotas de leitura usam o repositório de leitura direto; rotas de escrita usam um serviço, que devolve só o id.
+- **Sessões separadas:** `WriteSession` (transação, usada só pelo `UnitOfWork`) e `ReadSession` (engine AUTOCOMMIT, uma por request via `Depends`) são tipos distintos, cada um com sua engine/fábrica (`infrastructure/db/sessions.py`). Todo repositório herda de `BaseRepository[S]` (abstrato; guarda a sessão no `__init__`). Escrita nunca usa `ReadSession` e vice-versa.
+- **Persistência só via ORM** SQLAlchemy 2.0 (`DeclarativeBase`, `Mapped`, `mapped_column`, `select()`); proibido SQL em string. Modelos ORM ficam em `infrastructure/db/models.py`, separados dos agregados, com `to_domain()`/`from_domain()`.
+- **Ids:** UUID v7 gerado no domínio (`domain/ids.py::new_id`, via `uuid-utils` até o Python 3.14 trazer `uuid.uuid7`); `Entity.id` nunca é `None` e o banco não gera chaves. Tipo `UUID` em todo parâmetro de id.
+- **Usuário:** `User` é agregado; toda `Sale` tem `user_id` (comprador) e todo `Product` tem `created_by`. O usuário que age vem do header `X-User-Id` (sem autenticação nesta demo).
+- **Schema:** `Base.metadata.create_all` (`create_tables`) no `lifespan`. Sem `init.sql`. Sem Alembic nem migrações (projeto de estudo): schema mudou, `make reset` recria o banco.
 
 ### Funções e classes
 - Uma responsabilidade por função; nome = verbo + objeto; sem flags booleanas que mudam o comportamento.
@@ -44,11 +54,12 @@ Entram nas etapas indicadas em `PLANO.md`; não antecipar:
 
 ## Testes
 
-- Rode só o teste relacionado: `pytest -x --tb=short -q <arquivo>` (ou `go test ./...` no serviço Go). Nunca a suíte inteira por padrão.
+- **Todo código novo ou alterado leva teste unitário** (`api/tests/unit`, sem Postgres: agregados puros e serviços com `UnitOfWork` em memória). Integração (`api/tests/integration`, Postgres real) só para o que o unitário não prova: ORM, locks, rotas.
+- Rode só o teste relacionado: `make test-unit` ou `pytest -x --tb=short -q <arquivo>` (ou `go test ./...` no serviço Go). Nunca a suíte inteira por padrão.
 - Máximo 2 tentativas no mesmo teste que falha; se continuar, pare e explique.
 - Python: `pytest` + `pytest-asyncio` (`asyncio_mode = "auto"`).
 - Antes de testes de integração: `docker ps`.
-- Só testes que protegem comportamento real (criação de venda, total, estados, falha de cobrança, outbox, idempotência, validação). Sem testes que espelham a implementação.
+- Só testes que protegem comportamento real (invariantes do agregado, transições de estado, total, falha de cobrança com devolução de estoque, outbox, idempotência, validação). Sem testes que espelham a implementação.
 
 ## Medição
 

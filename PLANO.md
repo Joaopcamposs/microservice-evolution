@@ -6,15 +6,15 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /sa
 
 ---
 
-## [ ] Etapa 0 — Monólito síncrono
+## [x] Etapa 0 — Monólito síncrono
 
 **Objetivo:** API funcional, simples e correta.
 **Entrega:**
-- Projeto `uv` + FastAPI, `docker-compose` com Postgres, `db/init.sql`, `Makefile` (`run`, `test`, `ruff`, `ty`).
-- Produtos e vendas (endpoints do README), estoque decrementado na transação.
+- Projeto `uv` + FastAPI, `docker-compose` com Postgres, schema via ORM (`create_all`), DDD com agregados puros e repositórios de escrita/leitura separados, usuário em vendas e produtos, `Makefile` (`run`, `test`, `ruff`, `ty`). *(feito)*
+- Usuários, produtos e vendas (endpoints do README), estoque decrementado na transação.
 - `PaymentGateway` e `EmailSender` fakes (`Protocol` + implementação), latência (ex.: 300–800 ms / 100–300 ms) e taxa de falha (ex.: 10 %) via env.
 - `POST /sales` faz tudo na request: valida → grava `PENDING` → cobra → `PAID` ou `PAYMENT_FAILED` → e-mail → `COMPLETED`.
-- Testes: total correto, estoque insuficiente, falha de cobrança, listagem filtrada.
+- Testes unitários (agregados, serviços com UoW em memória) e de integração (rotas, ORM, locks).
 
 **Pronto quando:** fluxo exercitado via `/docs`, `make ruff` e `make ty` limpos, testes passando.
 **Não faz:** fila, cache, autenticação.
@@ -26,7 +26,7 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /sa
 - `bench/` (locust ou k6) com o cenário padrão; `make bench`.
 - Logs estruturados com `sale_id`; métrica de latência por etapa (cobrança, e-mail, banco) — endpoint `/metrics` Prometheus opcional.
 - Baseline registrado em `CHANGELOG.md`: com 50/200/500 usuários, onde p95 explode e por quê (workers uvicorn ocupados esperando fakes).
-- Ajustes baratos *antes* de arquitetura: pool de conexões, índices (`status`, `customer_email`, `created_at`), mais processos uvicorn. Medir de novo.
+- Ajustes baratos *antes* de arquitetura: pool de conexões, índices (`status`, `user_id`, `created_at`), mais processos uvicorn. Medir de novo.
 
 **Pronto quando:** existe tabela baseline vs. ajustes baratos e conclusão escrita de que o gargalo é I/O externo síncrono.
 **Não faz:** mudança de arquitetura.
@@ -71,6 +71,7 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /sa
 
 **Objetivo:** com escrita resolvida, o gargalo migra para leitura/banco.
 **Entrega (cada item só se a medição pedir):**
+- Apontar `DATABASE_READ_URL` para uma réplica (atenção: leitura logo após escrita, como no retorno do `POST`, pode ver atraso de replicação).
 - Seed de milhões de vendas; paginação keyset em `GET /sales`.
 - Cache Redis em `GET /sales/{id}` (invalidação por evento de status).
 - Particionamento por data ou réplica de leitura; limpeza/arquivamento do `outbox`.
@@ -102,5 +103,5 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /sa
 ## Decisões em aberto
 
 - Locust (Python) vs. k6 para carga — sugestão: k6 (não compete por CPU com o app, scripts curtos).
-- SQLAlchemy async vs. psycopg puro — sugestão: SQLAlchemy 2 async.
+- ~~SQLAlchemy vs. driver puro~~ — decidido: SQLAlchemy 2.0 async (ORM), `create_all` sem Alembic (projeto de estudo; schema mudou, `make reset`).
 - Biblioteca de mensagens nos workers: `aio-pika` direto (mais didático) vs. Celery/TaskIQ — sugestão: `aio-pika`; Celery/TaskIQ só como comparação opcional na etapa 4.
