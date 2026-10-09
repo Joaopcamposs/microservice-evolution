@@ -6,7 +6,7 @@ import httpx
 
 from app.infra.database import get_read_session, get_write_session
 from app.main import app
-from app.services.security import hash_password, verify_password
+from app.services.security import PasswordHasher
 
 PWD = "senha-forte-1"
 
@@ -67,10 +67,10 @@ async def test_unknown_id_returns_empty_list(client: httpx.AsyncClient):
 
 
 def test_password_hash_verifies():
-    stored = hash_password(PWD)
+    stored = PasswordHasher.hash(PWD)
     assert PWD not in stored
-    assert verify_password(PWD, stored)
-    assert not verify_password("outra-senha-1", stored)
+    assert PasswordHasher.verify(PWD, stored)
+    assert not PasswordHasher.verify("outra-senha-1", stored)
 
 
 async def test_response_has_process_time_header(client: httpx.AsyncClient):

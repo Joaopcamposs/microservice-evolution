@@ -16,7 +16,7 @@ from app.repository.orm.models import Order, OrderItem, OrderStatusChange, Produ
 from app.repository.products import ProductWriter
 from app.repository.users import UserReader, UserWriter
 from app.services.gateways import EmailSender, PaymentGateway
-from app.services.security import hash_password
+from app.services.security import PasswordHasher
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ async def create_user(session: AsyncSession, data: UserCreate) -> User:
     user = UserWriter(session).add(
         name=data.name,
         email=data.email.lower(),
-        password_hash=await asyncio.to_thread(hash_password, data.password),
+        password_hash=await asyncio.to_thread(PasswordHasher.hash, data.password),
     )
     try:
         await session.commit()
