@@ -4,11 +4,10 @@ import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.errors import InsufficientStock, InvalidTransition, ProductsNotFound
+from app.domain.errors import EmailAlreadyExists, OrderNotFound, UserNotFound
 from app.domain.order import Order
 from app.domain.product import Product
 from app.domain.schemas import OrderCreate, ProductCreate, UserCreate
@@ -16,14 +15,16 @@ from app.domain.status import OrderStatus
 from app.domain.user import User
 from app.repository.orders import OrderWriter
 from app.repository.products import ProductWriter
-from app.repository.users import UserReader, UserWriter
+from app.repository.users import UserWriter
 from app.services.effects import OrderEffects
 
 logger = logging.getLogger(__name__)
 
 
 async def create_user(session: AsyncSession, data: UserCreate) -> User:
-    """Cadastra usuário pelo agregado (e-mail normalizado, senha em hash); 409 se o e-mail existir.
+    """Cadastra usuário pelo agregado (e-mail normalizado, senha em hash).
+
+    Levanta `EmailAlreadyExists` se o e-mail já existir.
 
     O hash (scrypt) é CPU-bound e roda em thread para não travar o event loop.
     """
@@ -32,7 +33,7 @@ async def create_user(session: AsyncSession, data: UserCreate) -> User:
     try:
         await session.commit()
     except IntegrityError as exc:
-        raise HTTPException(409, "e-mail já cadastrado") from exc
+        raise EmailAlreadyExists from exc
     return user
 
 
@@ -48,20 +49,15 @@ async def create_order(session: AsyncSession, data: OrderCreate, effects: OrderE
     """Cria o pedido, reserva estoque e cobra, tudo dentro da request.
 
     Busca o necessário (usuário e produtos travados com `FOR UPDATE`), o agregado decide
-    (`Order.place`: 404/409) e, se der certo, grava e faz commit, o que libera os locks antes
+    (`Order.place`) e, se der certo, grava e faz commit, o que libera os locks antes
     das chamadas lentas. Depois vêm os efeitos: e-mail de RECEIVED e, após a cobrança, o do
     resultado (PAID ou PAYMENT_FAILED). AWAITING_PAYMENT dura só a cobrança e não tem e-mail.
     """
     writer = OrderWriter(session)
     user, products = await writer.load_placement(data.user_id, data.product_ids)
     if user is None:
-        raise HTTPException(404, "usuário não encontrado")
-    try:
-        order = Order.place(data.user_id, data.items, products)
-    except ProductsNotFound as exc:
-        raise HTTPException(404, str(exc)) from exc
-    except InsufficientStock as exc:
-        raise HTTPException(409, str(exc)) from exc
+        raise UserNotFound
+    order = Order.place(data.user_id, data.items, products)
     writer.add(order)
     await session.commit()
     logger.info("pedido criado order_id=%s total_cents=%d", order.id, order.total_cents)
@@ -82,18 +78,14 @@ async def update_order_status(
 ) -> Order:
     """Move o pedido para `target` (interface da operação) e envia o e-mail da mudança.
 
-    404 se o pedido não existe; 409 se a transição não é permitida. A linha do pedido fica
-    travada, então duas atualizações simultâneas não passam as duas pelo mesmo estado.
+    Levanta `OrderNotFound` ou `InvalidTransition` (transição não permitida). A linha do pedido
+    fica travada, então duas atualizações simultâneas não passam as duas pelo mesmo estado.
     """
-    order = await OrderWriter(session).get_for_update(order_id)
-    if order is None:
-        raise HTTPException(404, "pedido não encontrado")
-    user = await UserReader(session).get(order.user_id)
-    assert user is not None  # FK garante
-    try:
-        order.move_to(target)
-    except InvalidTransition as exc:
-        raise HTTPException(409, str(exc)) from exc
+    loaded = await OrderWriter(session).load_for_update(order_id)
+    if loaded is None:
+        raise OrderNotFound
+    order, user = loaded
+    order.move_to(target)
     await _after_move(session, order)
     await session.commit()
     await effects.notify(order, user)

@@ -1,5 +1,6 @@
-"""Erros de regra de negócio levantados pelos agregados; quem chama traduz para HTTP."""
+"""Erros de regra de negócio; `app/routers/errors.py` traduz cada um para HTTP."""
 
+from dataclasses import dataclass
 from uuid import UUID
 
 from app.domain.status import OrderStatus
@@ -9,28 +10,63 @@ class DomainError(Exception):
     """Base dos erros de regra de negócio."""
 
 
+@dataclass(eq=False)
+class UserNotFound(DomainError):
+    """O usuário do pedido não existe."""
+
+    def __str__(self) -> str:
+        """Mensagem devolvida ao cliente."""
+        return "usuário não encontrado"
+
+
+@dataclass(eq=False)
+class OrderNotFound(DomainError):
+    """O pedido não existe."""
+
+    def __str__(self) -> str:
+        """Mensagem devolvida ao cliente."""
+        return "pedido não encontrado"
+
+
+@dataclass(eq=False)
+class EmailAlreadyExists(DomainError):
+    """Já existe usuário com esse e-mail."""
+
+    def __str__(self) -> str:
+        """Mensagem devolvida ao cliente."""
+        return "e-mail já cadastrado"
+
+
+@dataclass(eq=False)
 class ProductsNotFound(DomainError):
     """O pedido cita produtos que não existem."""
 
-    def __init__(self, product_ids: list[UUID]) -> None:
-        """Guarda os ids inexistentes."""
-        super().__init__(f"produtos não encontrados: {[str(p) for p in product_ids]}")
-        self.product_ids = product_ids
+    product_ids: list[UUID]
+
+    def __str__(self) -> str:
+        """Mensagem devolvida ao cliente, com os ids."""
+        return f"produtos não encontrados: {[str(p) for p in self.product_ids]}"
 
 
+@dataclass(eq=False)
 class InsufficientStock(DomainError):
     """Algum produto não tem estoque para a quantidade pedida."""
 
-    def __init__(self, product_ids: list[UUID]) -> None:
-        """Guarda os produtos sem estoque suficiente."""
-        super().__init__(f"estoque insuficiente: {[str(p) for p in product_ids]}")
-        self.product_ids = product_ids
+    product_ids: list[UUID]
+
+    def __str__(self) -> str:
+        """Mensagem devolvida ao cliente, com os ids."""
+        return f"estoque insuficiente: {[str(p) for p in self.product_ids]}"
 
 
+@dataclass(eq=False)
 class InvalidTransition(DomainError):
     """O pedido não pode ir do estado atual para o destino pedido."""
 
-    def __init__(self, current: OrderStatus, target: OrderStatus) -> None:
-        """Monta a mensagem com o estado atual, o destino e os possíveis."""
-        allowed = sorted(s.value for s in current.next_states)
-        super().__init__(f"{current} → {target} não permitido; possíveis: {allowed}")
+    current: OrderStatus
+    target: OrderStatus
+
+    def __str__(self) -> str:
+        """Mensagem devolvida ao cliente, com os estados possíveis."""
+        allowed = sorted(s.value for s in self.current.next_states)
+        return f"{self.current} → {self.target} não permitido; possíveis: {allowed}"

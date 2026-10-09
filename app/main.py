@@ -12,6 +12,7 @@ from app.infra.logs import configure_logging
 from app.infra.timing import ProcessTimeMiddleware
 from app.repository.orm.tables import metadata
 from app.routers import orders, products, users
+from app.routers.errors import DomainErrorHandler
 
 configure_logging()
 
@@ -45,6 +46,7 @@ app = FastAPI(
     telemetry={"exclude": is_healthcheck},
 )
 app.add_middleware(ProcessTimeMiddleware)
+DomainErrorHandler.register(app)
 app.include_router(users.router)
 app.include_router(products.router)
 app.include_router(orders.router)

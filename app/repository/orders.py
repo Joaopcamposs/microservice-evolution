@@ -46,6 +46,14 @@ class OrderWriter(Repository):
         """Registra o pedido (com itens e histórico) na sessão."""
         self.session.add(order)
 
-    async def get_for_update(self, order_id: UUID) -> Order | None:
-        """Busca o pedido travando a linha (`FOR UPDATE`) até o fim da transação."""
-        return await self.session.get(Order, order_id, with_for_update=True)
+    async def load_for_update(self, order_id: UUID) -> tuple[Order, User] | None:
+        """Busca o pedido travando a linha (`FOR UPDATE`) até o fim da transação, e seu usuário.
+
+        `None` se o pedido não existe.
+        """
+        order = await self.session.get(Order, order_id, with_for_update=True)
+        if order is None:
+            return None
+        user = await UserReader(self.session).get(order.user_id)
+        assert user is not None  # FK garante
+        return order, user
