@@ -1,68 +1,60 @@
 # microservice-evolution
 
-Demonstração didática de **evolução arquitetural**: uma API de vendas FastAPI começa síncrona e simples; conforme a carga cresce e a latência degrada, migramos por etapas para API + workers assíncronos (RabbitMQ, outbox) e, se a medição justificar, serviços em Go. Cada etapa é medida antes e depois.
-
-Roteiro completo: [`PLANO.md`](PLANO.md). Regras de código e fluxo: [`AGENTS.md`](AGENTS.md).
+Projeto de estudo de **evolução arquitetural**: uma API de pedidos FastAPI começa pequena e síncrona; conforme a necessidade (medida) aparece, evolui por etapas até API + workers assíncronos e, se valer a pena, serviços em Go. Roteiro em [`PLANO.md`](PLANO.md); regras de código em [`AGENTS.md`](AGENTS.md).
 
 ## Estado atual
 
-**Etapa 0 — não iniciada.** (Atualizar este bloco a cada etapa concluída.)
+**Etapa 0 — concluída:** cadastros de usuário, produto e pedido, com consulta. Sem estoque, cobrança, e-mail, autenticação ou status.
 
 ## Domínio
 
-Sistema de vendas mínimo:
+- **Usuário:** `id`, `name`, `email` (único), `password` (só na entrada; guardada como hash scrypt, nunca devolvida), `created_at`.
+- **Produto:** `id`, `name`, `price_cents`, `created_at`.
+- **Pedido:** `id`, `user_id`, itens (`product_id`, `quantity`, `unit_price_cents`), `total_cents` (calculado), `created_at`. O preço do item é copiado do produto na criação.
+- Ids são UUID v7; dinheiro em centavos.
 
-- **Produto:** `id`, `name`, `price_cents`, `stock`.
-- **Venda:** `id`, `customer_email`, itens (`product_id`, `quantity`, `unit_price_cents`), `total_cents`, `status`.
-- **Status:** `PENDING` → `PAID` → `COMPLETED`; falha de cobrança → `PAYMENT_FAILED`.
-- **Integrações fake:** cobrança (latência e taxa de falha configuráveis) e envio de e-mail (apenas latência + log). Servem para simular trabalho lento sem depender de terceiros.
-
-## Endpoints (etapa 0)
+## Endpoints
 
 | Método | Rota | Descrição |
 |---|---|---|
+| `POST` | `/users` | Cadastra usuário (`409` se o e-mail já existe) |
+| `GET` | `/users` | Consulta (`id` opcional; sem ele, lista) com paginação `limit`, `offset` |
 | `POST` | `/products` | Cadastra produto |
-| `GET` | `/products` | Lista produtos |
-| `POST` | `/sales` | Registra venda: valida estoque, grava, cobra (fake), envia e-mail (fake) — tudo na request |
-| `GET` | `/sales/{id}` | Consulta venda |
-| `GET` | `/sales` | Lista vendas (filtro por `status`, `customer_email`; paginação) |
-| `GET` | `/health` | Liveness |
+| `GET` | `/products` | Consulta (`id` opcional; sem ele, lista), igual a `/users` |
+| `POST` | `/orders` | Cria pedido (`404` se usuário ou produto não existe; `422` se itens vazios, quantidade ≤ 0 ou produto repetido) |
+| `GET` | `/orders` | Consulta (`id` opcional; sem ele, lista), filtro `user_id`, igual a `/users` |
 
-Swagger em `/docs`. A partir da etapa 3, `POST /sales` passa a responder `202 Accepted` e o status é consultado em `GET /sales/{id}`.
+Swagger em `/docs`.
 
-## Arquitetura
+## Estrutura
 
 ```
-Etapa 0                 Etapa 3+ (alvo)
-┌────────┐              ┌─────┐   ┌────────┐   ┌────────┐   ┌──────────┐
-│  API   │─ cobra ─┐    │ API │──▶│ outbox │──▶│ relay  │──▶│ RabbitMQ │
-│FastAPI │─ email ─┤    └──┬──┘   └────────┘   └────────┘   └────┬─────┘
-└───┬────┘         │       │ Postgres (sales+outbox, 1 tx)        ▼
-    ▼              ▼       ▼                               ┌────────┐
- Postgres      (fakes, lentos)                             │ router │
-                                                           └─┬────┬─┘
-                                                      payment│    │email
-                                                         worker   worker
-```
-
-## Estrutura planejada
-
-```
-api/                  FastAPI (routes / services / repositories)
-  app/
-  tests/
-db/init.sql           schema comentado
-contracts/            envelope.schema.json (etapa 3)
-bench/                cenários de carga (locust/k6) e resultados
-services/             relay, router, workers (etapas 3+)
-docker-compose.yml
-Makefile              run, test, ruff, ty, bench, up, down
+app/
+  main.py               cria as tabelas na subida e registra os routers
+  infra/database.py     engine, sessão por request, Base
+  repository/orm/       tabelas ORM (models.py)
+  repository/repo.py    consultas (só leitura)
+  services/handlers.py  cadastros: regras de criação e commit
+  domain/schemas.py     entrada/saída (Pydantic)
+  routers/              rotas HTTP (users, products, orders)
+tests/           SQLite em memória (sem Docker)
 ```
 
 ## Como rodar
 
-Preenchido na etapa 0 (`make up`, `make run`). Pré-requisitos: Python 3.13, `uv`, Docker.
+Pré-requisitos: Python 3.13, `uv`, Docker.
+
+```bash
+uv sync
+make up       # API + Postgres no Docker: http://localhost:8000/docs
+make run      # alternativa: API local com reload (só o Postgres no Docker)
+make test     # testes (sem Docker)
+make ruff ty  # lint e tipos
+make reset    # apaga o banco (schema mudou)
+```
+
+Banco configurável por `DATABASE_URL` (padrão: Postgres do compose).
 
 ## Stack
 
-Python 3.13 · FastAPI · Pydantic · SQLAlchemy 2 async + asyncpg · PostgreSQL · pytest · ruff · ty. Adicionados por etapa: RabbitMQ, Redis, Prometheus/Grafana, locust ou k6, Go.
+Python 3.13 · FastAPI · SQLAlchemy 2.0 async (ORM) + asyncpg · PostgreSQL · uuid-utils · pytest (SQLite em memória) · ruff · ty.

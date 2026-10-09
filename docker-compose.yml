@@ -1,0 +1,31 @@
+# Ambiente local: API + Postgres. As tabelas são criadas pela API na subida.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # API; só inicia com o Postgres saudável.
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+asyncpg://app:app@postgres:5432/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
