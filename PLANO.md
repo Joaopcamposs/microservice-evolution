@@ -29,7 +29,7 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /or
 - `bench/` (locust ou k6) com o cenário padrão; `make bench`.
 - Logs estruturados com `order_id`; métrica de latência por etapa (cobrança, e-mail, banco) — endpoint `/metrics` Prometheus opcional.
 - Baseline registrado em `CHANGELOG.md`: com 50/200/500 usuários, onde p95 explode e por quê (workers uvicorn ocupados esperando fakes).
-- Ajustes baratos *antes* de arquitetura: pool de conexões, índices (`status`, `user_id`, `created_at`), mais processos uvicorn. Medir de novo.
+- Ajustes baratos *antes* de arquitetura: pool de conexões, índices (`status`, `user_id`, `created_at`), mais processos uvicorn. Medir de novo. (Workers e pool já medidos em `bench/RESULTS.md`.)
 
 **Pronto quando:** existe tabela baseline vs. ajustes baratos e conclusão escrita de que o gargalo é I/O externo síncrono.
 **Não faz:** mudança de arquitetura.

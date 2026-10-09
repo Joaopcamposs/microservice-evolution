@@ -14,5 +14,6 @@
   | 500 | 391 | 48 ms | 5,4 s | 9,1 s | 0% |
 
   Vazão satura perto de 550 req/s e a latência de cauda cresce com a fila. Detalhes por endpoint em `bench/RESULTS.md`.
+- Workers e pool configuráveis por env (`WEB_CONCURRENCY`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`); compose passa a usar 4 workers. Vazão de ~550 para ~1450 req/s (p95 com 500 usuários: 5,4 s → 1,3 s). Tabela completa em `bench/RESULTS.md`.
 - API com healthcheck no compose (o k6 espera a API ficar saudável).
 - A versão com DDD/UoW/CQRS ficou na branch `major-complexo`.

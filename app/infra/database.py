@@ -10,7 +10,12 @@ from sqlalchemy.orm import DeclarativeBase
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql+asyncpg://app:app@localhost:5432/app")
 
-engine = create_async_engine(DATABASE_URL)
+# Pool por processo: com N workers uvicorn, o total é N x (POOL_SIZE + MAX_OVERFLOW)
+# e precisa caber no `max_connections` do Postgres (100 por padrão).
+POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
+MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
+
+engine = create_async_engine(DATABASE_URL, pool_size=POOL_SIZE, max_overflow=MAX_OVERFLOW)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 

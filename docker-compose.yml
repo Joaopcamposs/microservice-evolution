@@ -21,6 +21,10 @@ services:
     build: .
     environment:
       DATABASE_URL: postgresql+asyncpg://app:app@postgres:5432/app
+      # Ajustáveis na linha de comando: WEB_CONCURRENCY=4 DB_POOL_SIZE=20 make bench
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
     ports:
       - "8000:8000"
     depends_on:

@@ -30,3 +30,24 @@ Registro das medições do `make bench`. Cada linha nova entra com data e a muda
 - A mediana quase não muda e a cauda explode: poucas requisições esperam muito. Os dois endpoints sofrem igual.
 - **Causa não medida.** Suspeitas: worker único do uvicorn e pool de 15 conexões. Próximo passo: variar workers e pool, uma mudança por vez.
 - Os números valem para comparação entre rodadas, não como valor absoluto (k6 e API disputam CPU; Docker no Mac tem overhead).
+
+## 2026-10-09 — Workers e pool (uma variável por vez)
+
+Mesmo ambiente e cenário do baseline. Variáveis: `WEB_CONCURRENCY` (workers uvicorn), `DB_POOL_SIZE` e `DB_MAX_OVERFLOW` (por worker).
+
+| Config | Workers | Pool + overflow | Conexões máx. | 50 usuários | 200 usuários | 500 usuários |
+|---|---|---|---|---|---|---|
+| A (baseline) | 1 | 5 + 10 | 15 | 568 req/s · p95 317 ms | 538 req/s · p95 1,63 s | 391 req/s · p95 5,4 s |
+| B (só pool) | 1 | 20 + 20 | 40 | 591 req/s · p95 169 ms | 561 req/s · p95 1,47 s | 499 req/s · p95 4,95 s |
+| C (só workers) | 4 | 5 + 10 | 60 | 1457 req/s · p95 64 ms | 1453 req/s · p95 468 ms | 1449 req/s · p95 1,32 s |
+| D (workers + pool) | 4 | 15 + 10 | 100 | 1815 req/s · p95 44 ms | 1741 req/s · p95 311 ms | 1574 req/s · p95 1,2 s |
+
+Todas sem erros (0%). p99 com 500 usuários: A 9,1 s · B 8,4 s · C 2,35 s · D 2,16 s.
+
+### Leitura
+
+- **O gargalo principal era CPU do processo Python:** 4 workers multiplicam a vazão por ~2,6x (A→C) e derrubam o p95 com 500 usuários de 5,4 s para 1,3 s.
+- **Pool maior sozinho ajuda pouco** (B: +4% a +28% de vazão, p95 melhor com 50 usuários): com um worker só, 15 conexões já sobravam.
+- **Pool maior com 4 workers rende mais** (C→D: +20% com 50 usuários, +9% com 500), mas D chega a 100 conexões, o `max_connections` padrão do Postgres; sem folga para outros clientes. O padrão do compose ficou em C (60 conexões).
+- Mesmo com 4 workers a cauda ainda cresce com 500 usuários (p95 > 1 s): a fila só foi empurrada para mais longe. Dez núcleos são divididos com k6 e Postgres, então 4 workers pode já estar perto do teto desta máquina.
+- Não medido ainda: 8 workers, Postgres como gargalo (CPU/`max_connections`), custo de cada etapa dentro da requisição.
