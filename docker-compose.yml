@@ -26,6 +26,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # Carga com k6 (só sobe com o perfil `bench`): docker compose run --rm k6, ou make bench.
+  k6:
+    image: grafana/k6:latest
+    profiles: [bench]
+    volumes:
+      - ./bench:/bench:ro
+    command: ["run", "--summary-trend-stats=avg,p(50),p(95),p(99),max", "/bench/orders.js"]
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:

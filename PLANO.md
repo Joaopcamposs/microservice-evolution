@@ -104,6 +104,6 @@ Cenário de carga padrão (`bench/`): N usuários concorrentes fazendo `POST /or
 
 ## Decisões em aberto
 
-- Locust (Python) vs. k6 para carga — sugestão: k6 (não compete por CPU com o app, scripts curtos).
+- ~~Locust vs. k6~~ — decidido: k6 (binário único em Go, roda no compose sem dependências Python, scripts curtos, percentis e limiares embutidos). Resultados em `bench/RESULTS.md`.
 - ~~ORM vs. SQL~~ — decidido: SQLAlchemy 2.0 async, `create_all`, sem Alembic (estudo).
 - Biblioteca de mensagens nos workers: `aio-pika` direto (mais didático) vs. Celery/TaskIQ — sugestão: `aio-pika`; Celery/TaskIQ só como comparação opcional na etapa 5.

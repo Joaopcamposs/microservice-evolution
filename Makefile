@@ -1,5 +1,5 @@
 # Atalhos de desenvolvimento. Uso: make <alvo>.
-.PHONY: up down reset run test ruff ty
+.PHONY: up down reset run test bench ruff ty
 
 # Sobe API + Postgres (reconstrói a imagem) e espera ficar saudável.
 up:
@@ -20,6 +20,15 @@ run:
 # Testes (usam SQLite em memória, sem Docker). Uso: make test T=tests/test_orders.py
 test:
 	uv run pytest -x --tb=short -q $(T)
+
+# Carga com k6 contra a API do compose (sobe tudo antes). Uso: make bench VUS="50 200 500" DURATION=30s
+VUS ?= 50 200 500
+DURATION ?= 30s
+bench: up
+	for v in $(VUS); do \
+		echo "== $$v usuários concorrentes =="; \
+		docker compose run --rm -e VUS=$$v -e DURATION=$(DURATION) k6; \
+	done
 
 # Lint + formatação.
 ruff:

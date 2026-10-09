@@ -37,6 +37,7 @@ app/
   services/handlers.py  cadastros: regras de criação e commit
   domain/schemas.py     entrada/saída (Pydantic)
   routers/              rotas HTTP (users, products, orders)
+bench/                  cenário de carga k6 (`orders.js`): POST /orders + GET /orders?id=
 tests/           SQLite em memória (sem Docker)
 ```
 
@@ -51,6 +52,7 @@ make run      # alternativa: API local com reload (só o Postgres no Docker)
 make test     # testes (sem Docker)
 make ruff ty  # lint e tipos
 make reset    # apaga o banco (schema mudou)
+make bench    # carga com k6 (50/200/500 usuários); `make bench VUS=100 DURATION=60s` para customizar; resultados em `bench/RESULTS.md`
 ```
 
 Banco configurável por `DATABASE_URL` (padrão: Postgres do compose).
